@@ -1,4 +1,5 @@
 import AppLayout from '@/layout/AppLayout.vue';
+import { useAuthStore } from '@/stores/auth';
 import { createRouter, createWebHistory } from 'vue-router';
 
 const router = createRouter({
@@ -7,6 +8,7 @@ const router = createRouter({
         {
             path: '/',
             component: AppLayout,
+            meta: { requiresAuth: true },
             children: [
                 {
                     path: '/',
@@ -14,19 +16,29 @@ const router = createRouter({
                     component: () => import('@/views/Dashboard.vue')
                 },
                 {
-                    path: '/uikit/tripinput',
+                    path: '/tripinput',
                     name: 'TripInput',
-                    component: () => import('@/views/uikit/TripInput.vue')
+                    component: () => import('@/views/TripInput.vue')
                 },
                 {
-                    path: '/uikit/TripByStaffName',
+                    path: '/TripByStaffName',
                     name: 'TripByStaffName',
-                    component: () => import('@/views/uikit/TripByStaffName.vue')
+                    component: () => import('@/views/TripByStaffName.vue')
                 },
                 {
-                    path: '/uikit/TripByCustomerName',
-                    name: 'TripByCustomerName',
-                    component: () => import('@/views/uikit/TripByCustomerName.vue')
+                    path: '/TripList',
+                    name: 'TripList',
+                    component: () => import('@/views/TripList.vue')
+                },
+                {
+                    path: '/CustomerList',
+                    name: 'CustomerList',
+                    component: () => import('@/views/customer/List.vue')
+                },
+                {
+                    path: '/CustomerAdd',
+                    name: 'CustomerAdd',
+                    component: () => import('@/views/customer/Add.vue')
                 }
             ]
         },
@@ -57,6 +69,47 @@ const router = createRouter({
             component: () => import('@/views/pages/auth/Error.vue')
         }
     ]
+});
+
+// Navigation guard to check authentication
+router.beforeEach((to, _from, next) => {
+    const authStore = useAuthStore();
+
+    // Wait for auth to initialize before proceeding
+    if (authStore.loading) {
+        // You might want to show a loading screen here
+        const unwatch = authStore.$subscribe(() => {
+            if (!authStore.loading) {
+                unwatch();
+                checkAuth();
+            }
+        });
+    } else {
+        checkAuth();
+    }
+
+    function checkAuth() {
+        // Check if the route requires authentication
+        if (to.matched.some((record) => record.meta.requiresAuth)) {
+            // Check if user is authenticated
+            if (!authStore.isAuthenticated) {
+                // Redirect to login page
+                next({ name: 'login', query: { redirect: to.fullPath } });
+            } else {
+                // User is authenticated, proceed
+                next();
+            }
+        } else {
+            // Route doesn't require authentication
+            // If user is already logged in and tries to access login page, redirect to dashboard
+            if (authStore.isAuthenticated && to.name === 'login') {
+                next({ name: 'dashboard' });
+            } else {
+                // Otherwise proceed normally
+                next();
+            }
+        }
+    }
 });
 
 export default router;

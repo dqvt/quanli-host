@@ -1,8 +1,6 @@
 <script setup>
 import { db } from '@/config/firebase';
 import { collection, getDocs, query, where } from 'firebase/firestore';
-import AutoComplete from 'primevue/autocomplete';
-import Button from 'primevue/button';
 import Column from 'primevue/column';
 import DataTable from 'primevue/datatable';
 import ProgressSpinner from 'primevue/progressspinner';
@@ -12,9 +10,10 @@ import { onMounted, ref, watch } from 'vue';
 const driverFilterValue = ref('');
 const drivers = ref([]);
 const filteredDrivers = ref([]);
-const trips = ref([]); // Store all trips
 const filteredTrips = ref([]); // Store filtered trips
 const loading = ref(false);
+
+// We're now using the global $formatDate method defined in main.js
 
 async function fetchDrivers() {
     try {
@@ -67,17 +66,7 @@ async function fetchTrips(driverName = '') {
     }
 }
 
-function searchDriver(event) {
-    setTimeout(() => {
-        if (!event.query.trim().length) {
-            filteredDrivers.value = [...drivers.value];
-        } else {
-            filteredDrivers.value = drivers.value.filter((driver) => {
-                return driver.toLowerCase().startsWith(event.query.toLowerCase());
-            });
-        }
-    }, 250);
-}
+// Removed unused searchDriver function
 
 watch(driverFilterValue, (newValue) => {
     fetchTrips(newValue);
@@ -104,35 +93,12 @@ function getStatusSeverity(status) {
 
 <template>
     <Fluid class="flex flex-col gap-8">
-        <!-- Driver Filter Section -->
-        <div class="card">
-            <div class="font-semibold text-xl mb-4">Lọc theo tài xế</div>
-            <div class="flex flex-col gap-4">
-                <!-- AutoComplete for driver filtering -->
-                <AutoComplete v-model="driverFilterValue" :suggestions="filteredDrivers" placeholder="Nhập tên tài xế" @complete="searchDriver($event)" class="w-full">
-                    <template #item="slotProps">
-                        <div class="flex align-items-center">
-                            <span class="pi pi-user mr-2"></span>
-                            <span>{{ slotProps.item }}</span>
-                        </div>
-                    </template>
-                </AutoComplete>
-
-                <!-- Active filter indicator -->
-                <div v-if="driverFilterValue" class="p-2 bg-primary-50 rounded">
-                    <div class="flex items-center gap-2">
-                        <span class="pi pi-filter"></span>
-                        <span>Đang lọc theo tài xế: {{ driverFilterValue }}</span>
-                        <Button icon="pi pi-times" class="p-button-rounded p-button-text p-button-sm" @click="driverFilterValue = ''" tooltip="Xóa bộ lọc" />
-                    </div>
-                </div>
-            </div>
-        </div>
-
         <!-- Results Section -->
         <div class="card">
             <div class="font-semibold text-xl mb-4">Danh sách chuyến xe</div>
-
+            <div class="flex justify-between items-center mb-4">
+                <Button label="Thêm chuyến xe mới" icon="pi pi-plus" @click="$router.push('/TripInput')" />
+            </div>
             <!-- Loading indicator -->
             <div v-if="loading" class="flex justify-center items-center p-4">
                 <ProgressSpinner style="width: 50px; height: 50px" />
@@ -149,13 +115,12 @@ function getStatusSeverity(status) {
                 currentPageReportTemplate="Showing {first} to {last} of {totalRecords} trips"
                 paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport RowsPerPageDropdown"
             >
-                <Column field="id" header="ID" sortable></Column>
+                <Column field="startingPoint" header="Điểm đi" sortable></Column>
+                <Column field="endingPoint" header="Điểm đến" sortable></Column>
                 <Column field="driverName" header="Tài xế" sortable></Column>
-                <Column field="startLocation" header="Điểm đi" sortable></Column>
-                <Column field="endLocation" header="Điểm đến" sortable></Column>
-                <Column field="startTime" header="Thời gian đi" sortable>
+                <Column field="tripDate" header="Thời gian đi" sortable>
                     <template #body="slotProps">
-                        {{ new Date(slotProps.data.startTime).toLocaleString('vi-VN') }}
+                        {{ $formatDate(slotProps.data.tripDate) }}
                     </template>
                 </Column>
                 <Column field="status" header="Trạng thái" sortable>

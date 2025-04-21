@@ -5,15 +5,13 @@ import AppMenuItem from './AppMenuItem.vue';
 
 const model = ref([
     {
-        label: 'Home',
-        items: [{ label: 'Tổng quản lý', icon: 'pi pi-fw pi-home', to: '/' }]
-    },
-    {
         label: 'Chức năng',
         items: [
-            { label: 'Thêm chuyến', icon: 'pi pi-fw pi-id-card', to: '/uikit/TripInput' },
-            { label: 'Lọc theo tên nhân viên', icon: 'pi pi-fw pi pi-user', to: '/uikit/TripByStaffName' },
-            { label: 'Lọc theo tên khách hàng', icon: 'pi pi-fw pi pi-user', to: '/uikit/TripByCustomerName', class: 'rotated-icon' }
+            { label: 'Thêm chuyến', icon: 'pi pi-fw pi-id-card', to: '/TripInput' },
+            { label: 'Lọc theo tên nhân viên', icon: 'pi pi-fw pi pi-user', to: '/TripByStaffName' },
+            { label: 'Danh sách chuyến xe', icon: 'pi pi-fw pi pi-user', to: '/TripList', class: 'rotated-icon' },
+            { label: 'Danh sách khách hàng', icon: 'pi pi-fw pi pi-user', to: '/CustomerList', class: 'rotated-icon' },
+            { label: 'Thêm khách hàng', icon: 'pi pi-fw pi-user-plus', to: '/CustomerAdd' }
         ]
     }
 ]);

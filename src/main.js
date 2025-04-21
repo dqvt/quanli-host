@@ -1,3 +1,4 @@
+import { createPinia } from 'pinia';
 import { createApp } from 'vue';
 import App from './App.vue';
 import router from './router';
@@ -10,6 +11,7 @@ import ToastService from 'primevue/toastservice';
 import '@/assets/styles.scss';
 
 const app = createApp(App);
+const pinia = createPinia();
 
 // Vietnamese locale configuration
 const vietnameseLocale = {
@@ -29,6 +31,7 @@ const vietnameseLocale = {
     passwordPrompt: 'Nhập mật khẩu'
 };
 
+app.use(pinia);
 app.use(router);
 app.use(PrimeVue, {
     locale: vietnameseLocale,
@@ -41,5 +44,24 @@ app.use(PrimeVue, {
 });
 app.use(ToastService);
 app.use(ConfirmationService);
+
+// Add global date formatting method
+app.config.globalProperties.$formatDate = (dateString) => {
+    if (!dateString) return '';
+
+    const date = new Date(dateString);
+
+    // Check if date is valid
+    if (isNaN(date.getTime())) return '';
+
+    // Format as dd/MM/yyyy
+    return date
+        .toLocaleDateString('vi-VN', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric'
+        })
+        .replace(/\//g, '/'); // Ensure forward slashes
+};
 
 app.mount('#app');
