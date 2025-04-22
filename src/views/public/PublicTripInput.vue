@@ -1,5 +1,5 @@
 <script setup>
-import TripInput from '@/views/TripInput.vue';
+import TripInput from '@/views/trip/Add.vue';
 </script>
 
 <template>

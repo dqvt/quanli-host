@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <script>
+      // Get the current path and query string
+      const path = window.location.pathname.slice(1);
+      const query = window.location.search;
+      // Remove the base path if present
+      const cleanPath = path.replace('quanli-host/', '');
+      // Encode the full path including query string
+      const encodedPath = encodeURIComponent(`${cleanPath}${query}`);
+      // Redirect to the base URL with the path as a parameter
+      window.location.href = `/quanli-host/?redirect=${encodedPath}`;
+    </script>
+  </head>
+  <body></body>
+</html>
