@@ -91,7 +91,6 @@ const handleLogin = async () => {
                                 <Checkbox v-model="checked" id="rememberme1" binary class="mr-2"></Checkbox>
                                 <label for="rememberme1">Ghi nhớ đăng nhập</label>
                             </div>
-                            <span class="font-medium no-underline ml-2 text-right cursor-pointer text-primary">Quên mật khẩu?</span>
                         </div>
                         <Button type="submit" :label="loading ? 'Đang đăng nhập...' : 'Đăng nhập'" class="w-full" :loading="loading" :disabled="loading"></Button>
                     </form>

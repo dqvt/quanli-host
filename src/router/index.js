@@ -7,77 +7,124 @@ const router = createRouter({
     routes: [
         {
             path: '/',
+            redirect: '/trip/list'
+        },
+        {
+            path: '/',
             component: AppLayout,
             meta: { requiresAuth: true },
             children: [
+                // Trip routes
                 {
-                    path: '/',
-                    name: 'dashboard',
-                    component: () => import('@/views/Dashboard.vue')
-                },
-                {
-                    path: '/tripinput',
-                    name: 'TripInput',
-                    component: () => import('@/views/TripInput.vue')
-                },
-                {
-                    path: '/TripByStaffName',
-                    name: 'TripByStaffName',
-                    component: () => import('@/views/TripByStaffName.vue')
-                },
-                {
-                    path: '/TripList',
+                    path: '/trip/list',
                     name: 'TripList',
-                    component: () => import('@/views/TripList.vue')
+                    component: () => import('@/views/trip/List.vue')
                 },
                 {
-                    path: '/CustomerList',
+                    path: '/trip/add',
+                    name: 'TripAdd',
+                    component: () => import('@/views/trip/Add.vue')
+                },
+                {
+                    path: '/trip/by-staff',
+                    name: 'TripByStaff',
+                    component: () => import('@/views/trip/ByStaff.vue')
+                },
+                {
+                    path: '/trip/pending',
+                    name: 'TripPending',
+                    component: () => import('@/views/trip/Pending.vue')
+                },
+
+                // Customer routes
+                {
+                    path: '/customer/list',
                     name: 'CustomerList',
                     component: () => import('@/views/customer/List.vue')
                 },
                 {
-                    path: '/CustomerAdd',
+                    path: '/customer/add',
                     name: 'CustomerAdd',
                     component: () => import('@/views/customer/Add.vue')
+                },
+                {
+                    path: '/customer/edit/:id',
+                    name: 'CustomerEdit',
+                    component: () => import('@/views/customer/Edit.vue'),
+                    meta: { requiresAuth: true }
+                },
+
+                // Staff routes
+                {
+                    path: '/staff/list',
+                    name: 'StaffList',
+                    component: () => import('@/views/staff/List.vue'),
+                    meta: { requiresAuth: true }
+                },
+                {
+                    path: '/staff/add',
+                    name: 'StaffAdd',
+                    component: () => import('@/views/staff/Add.vue'),
+                    meta: { requiresAuth: true }
+                },
+                {
+                    path: '/staff/edit/:id',
+                    name: 'StaffEdit',
+                    component: () => import('@/views/staff/Edit.vue'),
+                    meta: { requiresAuth: true }
+                },
+
+                // Vehicle routes
+                {
+                    path: '/vehicle/list',
+                    name: 'VehicleList',
+                    component: () => import('@/views/vehicle/List.vue')
+                },
+                {
+                    path: '/vehicle/add',
+                    name: 'VehicleAdd',
+                    component: () => import('@/views/vehicle/Add.vue')
+                },
+                {
+                    path: '/vehicle/edit/:id',
+                    name: 'VehicleEdit',
+                    component: () => import('@/views/vehicle/Edit.vue')
                 }
             ]
         },
+
+        // Public routes
         {
-            path: '/landing',
-            name: 'landing',
-            component: () => import('@/views/pages/Landing.vue')
-        },
-        {
-            path: '/pages/notfound',
-            name: 'notfound',
-            component: () => import('@/views/pages/NotFound.vue')
+            path: '/public/trip/add',
+            name: 'PublicTripAdd',
+            component: () => import('@/views/public/PublicTripInput.vue'),
+            meta: { requiresAuth: false }
         },
 
+        // Auth routes
         {
             path: '/auth/login',
-            name: 'login',
-            component: () => import('@/views/pages/auth/Login.vue')
+            name: 'Login',
+            component: () => import('@/views/auth/Login.vue')
         },
         {
             path: '/auth/access',
-            name: 'accessDenied',
-            component: () => import('@/views/pages/auth/Access.vue')
+            name: 'AccessDenied',
+            component: () => import('@/views/auth/Access.vue')
         },
         {
             path: '/auth/error',
-            name: 'error',
-            component: () => import('@/views/pages/auth/Error.vue')
+            name: 'Error',
+            component: () => import('@/views/auth/Error.vue')
         }
     ]
 });
 
-// Navigation guard to check authentication
+// Navigation guard
 router.beforeEach((to, _from, next) => {
     const authStore = useAuthStore();
 
-    // Wait for auth to initialize before proceeding
     if (authStore.loading) {
-        // You might want to show a loading screen here
         const unwatch = authStore.$subscribe(() => {
             if (!authStore.loading) {
                 unwatch();
@@ -89,23 +136,16 @@ router.beforeEach((to, _from, next) => {
     }
 
     function checkAuth() {
-        // Check if the route requires authentication
         if (to.matched.some((record) => record.meta.requiresAuth)) {
-            // Check if user is authenticated
             if (!authStore.isAuthenticated) {
-                // Redirect to login page
-                next({ name: 'login', query: { redirect: to.fullPath } });
+                next({ name: 'Login', query: { redirect: to.fullPath } });
             } else {
-                // User is authenticated, proceed
                 next();
             }
         } else {
-            // Route doesn't require authentication
-            // If user is already logged in and tries to access login page, redirect to dashboard
-            if (authStore.isAuthenticated && to.name === 'login') {
-                next({ name: 'dashboard' });
+            if (authStore.isAuthenticated && to.name === 'Login') {
+                next({ name: 'TripList' });
             } else {
-                // Otherwise proceed normally
                 next();
             }
         }

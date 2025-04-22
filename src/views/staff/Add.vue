@@ -3,6 +3,7 @@ import { db } from '@/config/firebase';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import Button from 'primevue/button';
 import InputText from 'primevue/inputtext';
+import DatePicker from 'primevue/calendar';
 import Panel from 'primevue/panel';
 import { useToast } from 'primevue/usetoast';
 import { ref } from 'vue';
@@ -11,109 +12,196 @@ import { useRouter } from 'vue-router';
 const router = useRouter();
 const toast = useToast();
 
-const customerData = ref({
-    representativeName: '',
-    companyName: '',
-    contactNumber: '',
-    email: '',
+const staffData = ref({
+    fullName: '',
+    shortName: '',
+    dob: null,
+    vietnamId: '',
+    licenseNumber: '',
+    phoneNumber: '',
+    emergencyContact: {
+        name: '',
+        phoneNumber: '',
+        relationship: ''
+    },
     createdAt: null
 });
 
 const loading = ref(false);
 const errorMessage = ref('');
+const submitted = ref(false);
 
-const saveCustomer = async () => {
+const validateForm = () => {
+    submitted.value = true;
+    const errors = [];
+
+    if (!staffData.value.fullName.trim()) {
+        errors.push('Vui lòng nhập họ và tên');
+    }
+    if (!staffData.value.shortName.trim()) {
+        errors.push('Vui lòng nhập tên ngắn');
+    }
+    if (!staffData.value.phoneNumber.trim()) {
+        errors.push('Vui lòng nhập số điện thoại');
+    }
+
+    if (errors.length > 0) {
+        errorMessage.value = errors.join(', ');
+        return false;
+    }
+
+    return true;
+};
+
+const saveStaff = async () => {
+    if (!validateForm()) {
+        loading.value = false;
+        return;
+    }
+
     loading.value = true;
     errorMessage.value = '';
 
     try {
-        // Validate required fields
-        if (!customerData.value.representativeName || !customerData.value.companyName) {
-            errorMessage.value = 'Vui lòng nhập tên người đại diện và tên công ty';
-            loading.value = false;
-            return;
-        }
-
-        const customersCollectionRef = collection(db, 'customers');
-        const customerDataToSave = {
-            ...customerData.value,
+        const staffCollectionRef = collection(db, 'staff');
+        const staffDataToSave = {
+            ...staffData.value,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
             status: 'active'
         };
 
-        const docRef = await addDoc(customersCollectionRef, customerDataToSave);
-        console.log('Lưu thông tin khách hàng thành công với ID:', docRef.id);
+        const docRef = await addDoc(staffCollectionRef, staffDataToSave);
+        console.log('Lưu thông tin nhân viên thành công với ID:', docRef.id);
         resetForm();
-        toast.add({ severity: 'success', summary: 'Thành công', detail: 'Đã lưu thông tin khách hàng', life: 3000 });
+        toast.add({ severity: 'success', summary: 'Thành công', detail: 'Đã lưu thông tin nhân viên', life: 3000 });
 
-        // Navigate to customer list after successful save
         setTimeout(() => {
-            router.push('/CustomerList');
+            router.push('/staff/list');
         }, 1500);
     } catch (error) {
-        console.error('Lỗi khi lưu thông tin khách hàng:', error);
-        errorMessage.value = 'Không thể lưu thông tin khách hàng. Vui lòng thử lại.';
+        console.error('Lỗi khi lưu thông tin nhân viên:', error);
+        errorMessage.value = 'Không thể lưu thông tin nhân viên. Vui lòng thử lại.';
     } finally {
         loading.value = false;
     }
 };
 
 const resetForm = () => {
-    customerData.value = {
-        representativeName: '',
-        companyName: '',
-        contactNumber: '',
-        email: '',
+    staffData.value = {
+        fullName: '',
+        shortName: '',
+        dob: null,
+        vietnamId: '',
+        licenseNumber: '',
+        phoneNumber: '',
+        emergencyContact: {
+            name: '',
+            phoneNumber: '',
+            relationship: ''
+        },
         createdAt: null
     };
+    submitted.value = false;
+    errorMessage.value = '';
 };
 </script>
 
 <template>
     <div class="card">
-        <h2 class="text-2xl font-bold mb-4">Thêm Thông Tin Khách Hàng</h2>
+        <h2 class="text-2xl font-bold mb-4">Thêm Thông Tin Nhân Viên</h2>
 
-        <!-- Show error message if any -->
         <div v-if="errorMessage" class="p-4 mb-4 bg-red-100 text-red-700 rounded">
             {{ errorMessage }}
         </div>
 
-        <form @submit.prevent="saveCustomer" class="flex flex-col gap-4">
+        <form @submit.prevent="saveStaff" class="flex flex-col gap-4">
+            <!-- Basic Information Panel -->
             <Panel>
                 <template #header>
-                    <span class="font-bold">Thông tin khách hàng</span>
+                    <span class="font-bold">Thông tin cơ bản</span>
                 </template>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="flex flex-col gap-2">
-                        <label for="representativeName">Tên người đại diện <span class="text-red-500">*</span></label>
-                        <InputText id="representativeName" v-model="customerData.representativeName" placeholder="Nhập tên người đại diện" :class="{ 'p-invalid': errorMessage && !customerData.representativeName }" />
+                        <label for="fullName">Họ và tên <span class="text-red-500">*</span></label>
+                        <InputText id="fullName" v-model="staffData.fullName" placeholder="Nhập họ và tên" :class="{ 'p-invalid': submitted && !staffData.fullName }" />
                     </div>
 
                     <div class="flex flex-col gap-2">
-                        <label for="companyName">Tên công ty <span class="text-red-500">*</span></label>
-                        <InputText id="companyName" v-model="customerData.companyName" placeholder="Nhập tên công ty" :class="{ 'p-invalid': errorMessage && !customerData.companyName }" />
+                        <label for="shortName">Tên ngắn <span class="text-red-500">*</span></label>
+                        <InputText id="shortName" v-model="staffData.shortName" placeholder="Nhập tên ngắn" :class="{ 'p-invalid': submitted && !staffData.shortName }" />
+                    </div>
+
+                    <div class="flex flex-col gap-2">
+                        <label for="dob">Ngày sinh</label>
+                        <DatePicker id="dob" v-model="staffData.dob" dateFormat="dd/mm/yy" :showIcon="true" placeholder="Chọn ngày sinh" />
+                    </div>
+
+                    <div class="flex flex-col gap-2">
+                        <label for="phoneNumber">Số điện thoại <span class="text-red-500">*</span></label>
+                        <InputText id="phoneNumber" v-model="staffData.phoneNumber" placeholder="Nhập số điện thoại" :class="{ 'p-invalid': submitted && !staffData.phoneNumber }" />
                     </div>
                 </div>
+            </Panel>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+            <!-- Documents Panel -->
+            <Panel>
+                <template #header>
+                    <span class="font-bold">Giấy tờ</span>
+                </template>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="flex flex-col gap-2">
-                        <label for="contactNumber">Số điện thoại liên hệ</label>
-                        <InputText id="contactNumber" v-model="customerData.contactNumber" placeholder="Nhập số điện thoại" />
+                        <label for="vietnamId">Số CCCD/CMND</label>
+                        <InputText id="vietnamId" v-model="staffData.vietnamId" placeholder="Nhập số CCCD/CMND" />
                     </div>
 
                     <div class="flex flex-col gap-2">
-                        <label for="email">Email</label>
-                        <InputText id="email" v-model="customerData.email" placeholder="Nhập địa chỉ email" type="email" />
+                        <label for="licenseNumber">Số bằng lái</label>
+                        <InputText id="licenseNumber" v-model="staffData.licenseNumber" placeholder="Nhập số bằng lái" />
+                    </div>
+                </div>
+            </Panel>
+
+            <!-- Emergency Contact Panel -->
+            <Panel>
+                <template #header>
+                    <span class="font-bold">Thông tin liên hệ khẩn cấp</span>
+                </template>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="flex flex-col gap-2">
+                        <label for="emergencyName">Tên người liên hệ</label>
+                        <InputText id="emergencyName" v-model="staffData.emergencyContact.name" placeholder="Nhập tên người liên hệ" />
+                    </div>
+
+                    <div class="flex flex-col gap-2">
+                        <label for="emergencyPhone">Số điện thoại</label>
+                        <InputText id="emergencyPhone" v-model="staffData.emergencyContact.phoneNumber" placeholder="Nhập số điện thoại" />
+                    </div>
+
+                    <div class="flex flex-col gap-2">
+                        <label for="emergencyRelationship">Mối quan hệ</label>
+                        <InputText id="emergencyRelationship" v-model="staffData.emergencyContact.relationship" placeholder="Nhập mối quan hệ" />
                     </div>
                 </div>
             </Panel>
 
             <div class="flex justify-end gap-2 mt-4">
-                <Button type="button" label="Hủy" severity="secondary" outlined @click="router.push('/CustomerList')" />
+                <Button type="button" label="Hủy" severity="secondary" outlined @click="router.push('/staff/list')" />
                 <Button type="submit" label="Lưu" icon="pi pi-save" :loading="loading" />
             </div>
         </form>
     </div>
 </template>
+
+<style scoped>
+.p-invalid {
+    @apply border-red-500;
+}
+
+.card {
+    @apply bg-white rounded-lg shadow-md p-6;
+}
+</style>

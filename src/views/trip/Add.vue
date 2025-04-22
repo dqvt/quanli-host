@@ -121,7 +121,7 @@ const saveTrip = async () => {
             tripDate: tripData.value.tripDate ? new Date(tripData.value.tripDate).toISOString() : null,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
-            status: 'active'
+            status: 'PENDING'
         };
 
         await addDoc(tripsCollectionRef, tripDataToSave);

@@ -49,7 +49,7 @@ const saveCustomer = async () => {
 
         // Navigate to customer list after successful save
         setTimeout(() => {
-            router.push('/CustomerList');
+            router.push('/customer-list');
         }, 1500);
     } catch (error) {
         console.error('Lỗi khi lưu thông tin khách hàng:', error);
@@ -111,7 +111,7 @@ const resetForm = () => {
             </Panel>
 
             <div class="flex justify-end gap-2 mt-4">
-                <Button type="button" label="Hủy" severity="secondary" outlined @click="router.push('/CustomerList')" />
+                <Button type="button" label="Hủy" severity="secondary" outlined @click="router.push('/customer-list')" />
                 <Button type="submit" label="Lưu" icon="pi pi-save" :loading="loading" />
             </div>
         </form>
