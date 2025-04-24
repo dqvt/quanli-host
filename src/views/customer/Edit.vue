@@ -1,12 +1,13 @@
 <script setup>
 import { db } from '@/config/firebase';
-import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { deleteDoc, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import Button from 'primevue/button';
+import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
 import Panel from 'primevue/panel';
 import { useToast } from 'primevue/usetoast';
-import { ref, onMounted } from 'vue';
-import { useRouter, useRoute } from 'vue-router';
+import { onMounted, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 const router = useRouter();
 const route = useRoute();
 const toast = useToast();
@@ -19,6 +20,7 @@ const customerData = ref({
 });
 const loading = ref(false);
 const errorMessage = ref('');
+const deleteDialog = ref(false);
 const customerId = route.params.id;
 onMounted(async () => {
     await fetchCustomerData();
@@ -61,17 +63,45 @@ const updateCustomer = async () => {
             updatedAt: serverTimestamp()
         };
         await updateDoc(customerRef, customerDataToUpdate);
-        console.log('Cập nhật thông tin khách hàng thành công');
         toast.add({ severity: 'success', summary: 'Thành công', detail: 'Đã cập nhật thông tin khách hàng', life: 3000 });
-        // Navigate to customer list after successful update
-        setTimeout(() => {
-            router.push('/customer-list');
-        }, 1500);
+        router.push('/customer/list');
     } catch (error) {
         console.error('Lỗi khi cập nhật thông tin khách hàng:', error);
         errorMessage.value = 'Không thể cập nhật thông tin khách hàng. Vui lòng thử lại.';
     } finally {
         loading.value = false;
+    }
+};
+
+// Confirm delete dialog
+const confirmDelete = () => {
+    deleteDialog.value = true;
+};
+
+// Delete customer from Firestore
+const deleteCustomer = async () => {
+    try {
+        const customerRef = doc(db, 'customers', customerId);
+        await deleteDoc(customerRef);
+
+        toast.add({
+            severity: 'success',
+            summary: 'Thành công',
+            detail: 'Đã xóa khách hàng',
+            life: 3000
+        });
+
+        router.push('/customer/list');
+    } catch (error) {
+        console.error('Error deleting customer:', error);
+        toast.add({
+            severity: 'error',
+            summary: 'Lỗi',
+            detail: 'Không thể xóa khách hàng. Vui lòng thử lại.',
+            life: 3000
+        });
+    } finally {
+        deleteDialog.value = false;
     }
 };
 </script>
@@ -105,11 +135,34 @@ const updateCustomer = async () => {
                     </div>
                 </div>
             </Panel>
-            <div class="flex justify-end gap-2 mt-4">
-                <Button type="button" label="Hủy" severity="secondary" outlined @click="router.push('/customer-list')" />
-                <Button type="submit" label="Cập nhật" icon="pi pi-save" :loading="loading" />
+            <!-- Action Buttons Row -->
+            <div class="flex justify-between items-center mt-4">
+                <!-- Delete Button (Left) -->
+                <Button type="button" label="Xóa" icon="pi pi-trash" severity="danger" @click="confirmDelete" outlined size="small" class="delete-btn" />
+
+                <!-- Save/Cancel Buttons (Right) -->
+                <div class="flex gap-2">
+                    <Button type="button" label="Hủy" severity="secondary" outlined @click="router.push('/customer/list')" />
+                    <Button type="submit" label="Cập nhật" icon="pi pi-save" :loading="loading" />
+                </div>
             </div>
         </form>
+
+        <!-- Delete Confirmation Dialog -->
+        <Dialog v-model:visible="deleteDialog" :style="{ width: '450px' }" header="Xác nhận xóa" :modal="true">
+            <div class="flex align-items-center gap-3">
+                <i class="pi pi-exclamation-triangle text-yellow-500" style="font-size: 2rem" />
+                <span>
+                    Bạn có chắc chắn muốn xóa khách hàng
+                    <b>{{ customerData.companyName }}</b
+                    >?
+                </span>
+            </div>
+            <template #footer>
+                <Button label="Không" icon="pi pi-times" @click="deleteDialog = false" class="p-button-text" />
+                <Button label="Có" icon="pi pi-check" @click="deleteCustomer" severity="danger" outlined />
+            </template>
+        </Dialog>
     </div>
 </template>
 <style scoped>

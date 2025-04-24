@@ -2,8 +2,8 @@
 import { db } from '@/config/firebase';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import Button from 'primevue/button';
-import InputText from 'primevue/inputtext';
 import DatePicker from 'primevue/calendar';
+import InputText from 'primevue/inputtext';
 import Panel from 'primevue/panel';
 import { useToast } from 'primevue/usetoast';
 import { ref } from 'vue';
@@ -73,12 +73,17 @@ const saveStaff = async () => {
 
         const docRef = await addDoc(staffCollectionRef, staffDataToSave);
         console.log('Lưu thông tin nhân viên thành công với ID:', docRef.id);
-        resetForm();
-        toast.add({ severity: 'success', summary: 'Thành công', detail: 'Đã lưu thông tin nhân viên', life: 3000 });
 
-        setTimeout(() => {
-            router.push('/staff/list');
-        }, 1500);
+        // Show success notification
+        toast.add({
+            severity: 'success',
+            summary: 'Thành công',
+            detail: 'Đã lưu thông tin nhân viên',
+            life: 3000
+        });
+
+        // Navigate back to staff list page immediately
+        router.push('/staff/list');
     } catch (error) {
         console.error('Lỗi khi lưu thông tin nhân viên:', error);
         errorMessage.value = 'Không thể lưu thông tin nhân viên. Vui lòng thử lại.';

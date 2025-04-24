@@ -1,161 +1,125 @@
 <script setup>
-import { db } from '@/config/firebase';
-import { collection, getDocs, query, where, doc, deleteDoc } from 'firebase/firestore';
+import Button from 'primevue/button';
 import Column from 'primevue/column';
 import DataTable from 'primevue/datatable';
+import Dialog from 'primevue/dialog';
+import Dropdown from 'primevue/dropdown';
 import ProgressSpinner from 'primevue/progressspinner';
 import Tag from 'primevue/tag';
-import Dialog from 'primevue/dialog';
-import { onMounted, ref, watch } from 'vue';
-import { useToast } from 'primevue/usetoast';
+import { onMounted, ref } from 'vue';
+import { calculateTotalExpenses, formatTimestamp, getStatusSeverity, useTripList } from './tripmixin';
 
-const toast = useToast();
-const deleteDialog = ref(false);
-const tripToDelete = ref(null);
+// Function to translate status values to Vietnamese
+const translateStatus = (status) => {
+    const translations = {
+        PENDING: 'Chờ duyệt',
+        APPROVED: 'Đã duyệt',
+        IN_PROGRESS: 'Đang thực hiện',
+        COMPLETED: 'Hoàn thành',
+        CANCELLED: 'Đã hủy'
+    };
+    return translations[status] || status;
+};
 
-const driverFilterValue = ref('');
-const drivers = ref([]);
-const filteredDrivers = ref([]);
-const filteredTrips = ref([]); // Store filtered trips
-const loading = ref(false);
+const {
+    filteredTrips,
+    loading,
+    router,
+    fetchStaffList,
+    fetchCustomerList,
+    fetchTrips,
+    checkRedirectNotification,
+    approveTrip,
+    approvingTripId,
+    driverFilterValue,
+    assistantFilterValue,
+    customerFilterValue,
+    startDateFilter,
+    endDateFilter,
+    statusFilter,
+    statusOptions,
+    staffList,
+    customerList
+} = useTripList();
 
-// We're now using the global $formatDate method defined in main.js
+// Add confirmation dialog functionality
+const confirmDialog = ref(false);
+const tripToApprove = ref(null);
 
-async function fetchDrivers() {
-    try {
-        const tripsCollection = collection(db, 'trips');
-        const querySnapshot = await getDocs(tripsCollection);
+// Function to show confirmation dialog before approving
+const confirmApprove = (tripId) => {
+    tripToApprove.value = tripId;
+    confirmDialog.value = true;
+};
 
-        // Get unique driver names from all trips
-        const uniqueDrivers = new Set();
-        querySnapshot.forEach((doc) => {
-            const driverName = doc.data().driverName;
-            if (driverName) {
-                uniqueDrivers.add(driverName);
-            }
-        });
-
-        // Update drivers ref with unique values
-        drivers.value = Array.from(uniqueDrivers).sort();
-        filteredDrivers.value = [...drivers.value];
-    } catch (error) {
-        console.error('Error fetching drivers:', error);
+// Function to handle approval after confirmation
+const handleApprove = () => {
+    if (tripToApprove.value) {
+        approveTrip(tripToApprove.value);
+        tripToApprove.value = null;
     }
-}
-
-async function fetchTrips(driverName = '') {
-    loading.value = true;
-    try {
-        const tripsCollection = collection(db, 'trips');
-        let querySnapshot;
-
-        if (driverName) {
-            const q = query(tripsCollection, where('driverName', '==', driverName));
-            querySnapshot = await getDocs(q);
-        } else {
-            querySnapshot = await getDocs(tripsCollection);
-        }
-
-        const tripsData = [];
-        querySnapshot.forEach((doc) => {
-            tripsData.push({
-                id: doc.id,
-                ...doc.data()
-            });
-        });
-
-        filteredTrips.value = tripsData;
-    } catch (error) {
-        console.error('Error fetching trips:', error);
-    } finally {
-        loading.value = false;
-    }
-}
-
-// Removed unused searchDriver function
-
-watch(driverFilterValue, (newValue) => {
-    fetchTrips(newValue);
-});
+    confirmDialog.value = false;
+};
 
 onMounted(() => {
-    fetchDrivers();
+    fetchStaffList();
+    fetchCustomerList();
     fetchTrips();
+    checkRedirectNotification();
 });
-
-async function confirmDelete(trip) {
-    tripToDelete.value = trip;
-    deleteDialog.value = true;
-}
-
-async function deleteTrip() {
-    if (!tripToDelete.value) return;
-
-    try {
-        const tripRef = doc(db, 'trips', tripToDelete.value.id);
-        await deleteDoc(tripRef);
-
-        toast.add({
-            severity: 'success',
-            summary: 'Thành công',
-            detail: 'Đã xóa chuyến xe',
-            life: 3000
-        });
-
-        // Refresh the trips list
-        await fetchTrips(driverFilterValue.value);
-    } catch (error) {
-        console.error('Error deleting trip:', error);
-        toast.add({
-            severity: 'error',
-            summary: 'Lỗi',
-            detail: 'Không thể xóa chuyến xe. Vui lòng thử lại.',
-            life: 3000
-        });
-    } finally {
-        deleteDialog.value = false;
-        tripToDelete.value = null;
-    }
-}
-</script>
-
-<script>
-// Add this helper function
-function getStatusSeverity(status) {
-    const severityMap = {
-        COMPLETED: 'success',
-        IN_PROGRESS: 'info',
-        CANCELLED: 'danger',
-        PENDING: 'warning'
-    };
-    return severityMap[status] || 'info';
-}
-
-// Add new helper function for formatting timestamps
-function formatTimestamp(timestamp) {
-    if (!timestamp) return '';
-    if (timestamp.seconds) {
-        // Firestore Timestamp
-        return new Date(timestamp.seconds * 1000).toLocaleString('vi-VN');
-    }
-    return new Date(timestamp).toLocaleString('vi-VN');
-}
-
-// Add helper function to calculate total expenses
-function calculateTotalExpenses(expenses) {
-    if (!expenses) return '0 ₫';
-    const total = Object.values(expenses).reduce((sum, value) => sum + (value || 0), 0);
-    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(total);
-}
 </script>
 
 <template>
     <Fluid class="flex flex-col gap-8">
+        <!-- Confirmation Dialog -->
+        <Dialog v-model:visible="confirmDialog" header="Xác nhận duyệt chuyến" :style="{ width: '450px' }" :modal="true">
+            <div class="confirmation-content">
+                <i class="pi pi-exclamation-triangle mr-3" style="font-size: 2rem; color: var(--yellow-500)" />
+                <span>Bạn có chắc chắn muốn duyệt chuyến xe này không?</span>
+            </div>
+            <template #footer>
+                <Button label="Không" icon="pi pi-times" outlined @click="confirmDialog = false" />
+                <Button label="Có, duyệt chuyến" icon="pi pi-check" severity="success" @click="handleApprove" autofocus />
+            </template>
+        </Dialog>
         <!-- Results Section -->
         <div class="card">
             <div class="font-semibold text-xl mb-4">Danh sách chuyến xe</div>
+
+            <!-- Filter Section -->
+            <div class="filter-container mb-4">
+                <div class="filter-row">
+                    <div class="filter-item">
+                        <span class="filter-label">Tài xế:</span>
+                        <Dropdown v-model="driverFilterValue" :options="staffList" optionLabel="label" optionValue="value" placeholder="Chọn tài xế" class="filter-input" :showClear="true" />
+                    </div>
+                    <div class="filter-item">
+                        <span class="filter-label">Phụ xe:</span>
+                        <Dropdown v-model="assistantFilterValue" :options="staffList" optionLabel="label" optionValue="value" placeholder="Chọn phụ xe" class="filter-input" :showClear="true" />
+                    </div>
+                    <div class="filter-item">
+                        <span class="filter-label">Khách hàng:</span>
+                        <Dropdown v-model="customerFilterValue" :options="customerList" optionLabel="label" optionValue="value" placeholder="Chọn khách hàng" class="filter-input" :showClear="true" />
+                    </div>
+                    <div class="filter-item date-range-container">
+                        <div class="date-range-item">
+                            <span class="filter-label">Từ ngày:</span>
+                            <DatePicker v-model="startDateFilter" dateFormat="dd/mm/yy" placeholder="Từ ngày" showIcon class="filter-input" />
+                        </div>
+                        <div class="date-range-item">
+                            <span class="filter-label">Đến ngày:</span>
+                            <DatePicker v-model="endDateFilter" dateFormat="dd/mm/yy" placeholder="Đến ngày" showIcon class="filter-input" />
+                        </div>
+                    </div>
+                    <div class="filter-item">
+                        <span class="filter-label">Trạng thái:</span>
+                        <Dropdown v-model="statusFilter" :options="statusOptions" optionLabel="label" optionValue="value" placeholder="Chọn trạng thái" class="filter-input" />
+                    </div>
+                </div>
+            </div>
+
             <div class="flex justify-between items-center mb-4">
-                <Button label="Thêm chuyến xe mới" icon="pi pi-plus" @click="$router.push('/TripInput')" />
+                <Button label="Thêm chuyến xe mới" icon="pi pi-plus" @click="router.push('/trip/add')" />
             </div>
             <!-- Loading indicator -->
             <div v-if="loading" class="flex justify-center items-center p-4">
@@ -170,10 +134,13 @@ function calculateTotalExpenses(expenses) {
                 :rows="10"
                 :rowsPerPageOptions="[5, 10, 20, 50]"
                 responsiveLayout="scroll"
-                currentPageReportTemplate="Showing {first} to {last} of {totalRecords} trips"
+                currentPageReportTemplate="Hiển thị {first} đến {last} của {totalRecords} chuyến xe"
                 paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport RowsPerPageDropdown"
                 class="p-datatable-sm"
             >
+                <!-- Add Vehicle License column -->
+                <Column field="vehicleLicenseNumber" header="Biển số xe" sortable></Column>
+
                 <!-- Basic Information -->
                 <Column field="tripDate" header="Thời gian đi" sortable>
                     <template #body="slotProps">
@@ -189,7 +156,7 @@ function calculateTotalExpenses(expenses) {
                 <!-- Personnel Information -->
                 <Column field="driverName" header="Tài xế" sortable></Column>
                 <Column field="assistantDriverName" header="Phụ xe" sortable></Column>
-                <Column field="customerName" header="Khách hàng" sortable></Column>
+                <Column field="customerDisplayName" header="Khách hàng" sortable></Column>
 
                 <!-- Expenses -->
                 <Column header="Chi phí CSGT" sortable>
@@ -228,7 +195,7 @@ function calculateTotalExpenses(expenses) {
                 <!-- Status and Timestamps -->
                 <Column field="status" header="Trạng thái" sortable>
                     <template #body="slotProps">
-                        <Tag :severity="getStatusSeverity(slotProps.data.status)" :value="slotProps.data.status" />
+                        <Tag :severity="getStatusSeverity(slotProps.data.status)" :value="translateStatus(slotProps.data.status)" />
                     </template>
                 </Column>
                 <Column field="createdAt" header="Ngày tạo" sortable>
@@ -243,30 +210,25 @@ function calculateTotalExpenses(expenses) {
                 </Column>
 
                 <!-- Add Actions Column -->
-                <Column header="Thao tác" :exportable="false" style="min-width: 8rem">
+                <Column header="Thao tác" :exportable="false" style="min-width: 12rem">
                     <template #body="slotProps">
-                        <div class="flex gap-2">
-                            <Button icon="pi pi-trash" severity="danger" outlined rounded @click="confirmDelete(slotProps.data)" :disabled="slotProps.data.status === 'IN_PROGRESS'" />
+                        <div class="action-buttons">
+                            <Button icon="pi pi-pencil" label="Sửa" outlined size="small" class="edit-button p-button-sm" @click="router.push(`/trip/edit/${slotProps.data.id}`)" tooltip="Chỉnh sửa chuyến xe" />
+                            <Button
+                                v-if="slotProps.data.status === 'PENDING'"
+                                icon="pi pi-check"
+                                label="Duyệt"
+                                severity="success"
+                                size="small"
+                                class="approve-button p-button-sm"
+                                :loading="approvingTripId === slotProps.data.id"
+                                @click="confirmApprove(slotProps.data.id)"
+                                tooltip="Duyệt chuyến xe"
+                            />
                         </div>
                     </template>
                 </Column>
             </DataTable>
-
-            <!-- Delete Confirmation Dialog -->
-            <Dialog v-model:visible="deleteDialog" :style="{ width: '450px' }" header="Xác nhận xóa" :modal="true">
-                <div class="flex align-items-center gap-3">
-                    <i class="pi pi-exclamation-triangle text-yellow-500" style="font-size: 2rem" />
-                    <span>
-                        Bạn có chắc chắn muốn xóa chuyến xe từ
-                        <b>{{ tripToDelete?.startingPoint }}</b> đến <b>{{ tripToDelete?.endingPoint }}</b
-                        >?
-                    </span>
-                </div>
-                <template #footer>
-                    <Button label="Không" icon="pi pi-times" @click="deleteDialog = false" class="p-button-text" />
-                    <Button label="Có" icon="pi pi-check" @click="deleteTrip" severity="danger" outlined />
-                </template>
-            </Dialog>
 
             <!-- Empty state -->
             <div v-if="!loading && filteredTrips.length === 0" class="text-center p-4">
@@ -290,6 +252,117 @@ function calculateTotalExpenses(expenses) {
 }
 
 .p-dialog-content {
-    @apply p-4;
+    padding: 1rem;
+}
+
+/* Filter section styling */
+.filter-container {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 1rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem;
+}
+
+.filter-item {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 200px;
+}
+
+.filter-label {
+    font-weight: 600;
+    margin-right: 0.5rem;
+    white-space: nowrap;
+    color: #495057;
+}
+
+.filter-input {
+    flex: 1;
+}
+
+/* Make sure the datepicker and dropdown have proper width */
+:deep(.p-calendar),
+:deep(.p-dropdown) {
+    width: 100%;
+}
+
+/* Date range styling */
+.date-range-container {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.date-range-item {
+    display: flex;
+    align-items: center;
+    flex: 1;
+}
+
+/* Action buttons styling */
+.action-buttons {
+    display: flex;
+    gap: 0.25rem;
+    align-items: center;
+}
+
+.edit-button,
+.approve-button {
+    min-width: 80px;
+    padding: 0.25rem 0.5rem;
+}
+
+.approve-button {
+    font-weight: 600;
+}
+
+/* Confirmation dialog styling */
+.confirmation-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 1rem 0;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .filter-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .filter-item {
+        margin-bottom: 0.5rem;
+    }
+
+    .date-range-container {
+        flex-direction: column;
+    }
+
+    .date-range-item {
+        margin-bottom: 0.5rem;
+    }
+
+    .date-range-item:last-child {
+        margin-bottom: 0;
+    }
+
+    .action-buttons {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .edit-button,
+    .approve-button {
+        margin-bottom: 0.5rem;
+        width: 100%;
+    }
 }
 </style>

@@ -1,6 +1,7 @@
 <script setup>
-import FloatingConfigurator from '@/components/FloatingConfigurator.vue';
 import { useAuthStore } from '@/stores/auth';
+import FloatingConfigurator from '@/views/FloatingConfigurator.vue';
+import Button from 'primevue/button';
 import ProgressSpinner from 'primevue/progressspinner';
 import { useToast } from 'primevue/usetoast';
 import { ref } from 'vue';
@@ -15,6 +16,42 @@ const password = ref('');
 const checked = ref(false);
 const loading = ref(false);
 const errorMessage = ref('');
+const copySuccess = ref(false);
+
+// Function to copy the public trip input URL to clipboard
+const copyPublicTripUrl = () => {
+    // Get the base URL of the application
+    const baseUrl = window.location.origin + import.meta.env.BASE_URL;
+    // Construct the full URL to the public trip input page
+    const publicTripUrl = baseUrl + 'public/trip/add';
+
+    // Copy to clipboard
+    navigator.clipboard
+        .writeText(publicTripUrl)
+        .then(() => {
+            copySuccess.value = true;
+            toast.add({
+                severity: 'success',
+                summary: 'Thành công',
+                detail: 'Đã sao chép đường dẫn vào clipboard!',
+                life: 3000
+            });
+
+            // Reset success state after 3 seconds
+            setTimeout(() => {
+                copySuccess.value = false;
+            }, 3000);
+        })
+        .catch((err) => {
+            console.error('Không thể sao chép: ', err);
+            toast.add({
+                severity: 'error',
+                summary: 'Lỗi',
+                detail: 'Không thể sao chép đường dẫn. Vui lòng thử lại.',
+                life: 3000
+            });
+        });
+};
 
 const handleLogin = async () => {
     // Reset error message
@@ -94,6 +131,12 @@ const handleLogin = async () => {
                         </div>
                         <Button type="submit" :label="loading ? 'Đang đăng nhập...' : 'Đăng nhập'" class="w-full" :loading="loading" :disabled="loading"></Button>
                     </form>
+
+                    <!-- Public Trip URL Button -->
+                    <div class="mt-8 text-center">
+                        <Button type="button" :label="copySuccess ? 'Đã sao chép!' : 'Sao chép đường dẫn nhập chuyến đi'" icon="pi pi-copy" severity="secondary" outlined class="w-full" @click="copyPublicTripUrl" :disabled="copySuccess" />
+                        <div class="mt-2 text-sm text-gray-500">Sao chép đường dẫn để gửi cho tài xế nhập thông tin chuyến đi</div>
+                    </div>
                 </div>
             </div>
         </div>

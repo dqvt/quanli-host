@@ -1,24 +1,35 @@
 <script setup>
 import { db } from '@/config/firebase';
-import { collection, getDocs, doc, deleteDoc } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import Button from 'primevue/button';
 import Column from 'primevue/column';
 import DataTable from 'primevue/datatable';
 import ProgressSpinner from 'primevue/progressspinner';
-import Dialog from 'primevue/dialog';
 import { useToast } from 'primevue/usetoast';
 import { onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 
 const router = useRouter();
+const route = useRoute();
 const toast = useToast();
 const staffList = ref([]);
 const loading = ref(false);
-const deleteDialog = ref(false);
-const staffToDelete = ref(null);
 
 onMounted(() => {
     fetchStaff();
+
+    // Check if redirected from direct access to add page
+    if (route.query.redirected === 'true') {
+        toast.add({
+            severity: 'info',
+            summary: 'Thông báo',
+            detail: 'Trang thêm nhân viên mới chỉ có thể truy cập từ danh sách nhân viên',
+            life: 5000
+        });
+
+        // Clean up the URL by removing the query parameter
+        router.replace({ path: route.path });
+    }
 });
 
 async function fetchStaff() {
@@ -52,41 +63,6 @@ async function fetchStaff() {
 function navigateToAddStaff() {
     router.push('/staff/add');
 }
-
-function confirmDelete(staff) {
-    staffToDelete.value = staff;
-    deleteDialog.value = true;
-}
-
-async function deleteStaff() {
-    if (!staffToDelete.value) return;
-
-    try {
-        const staffRef = doc(db, 'staff', staffToDelete.value.id);
-        await deleteDoc(staffRef);
-
-        toast.add({
-            severity: 'success',
-            summary: 'Thành công',
-            detail: 'Đã xóa nhân viên',
-            life: 3000
-        });
-
-        // Refresh the staff list
-        await fetchStaff();
-    } catch (error) {
-        console.error('Error deleting staff:', error);
-        toast.add({
-            severity: 'error',
-            summary: 'Lỗi',
-            detail: 'Không thể xóa nhân viên. Vui lòng thử lại.',
-            life: 3000
-        });
-    } finally {
-        deleteDialog.value = false;
-        staffToDelete.value = null;
-    }
-}
 </script>
 
 <template>
@@ -112,6 +88,7 @@ async function deleteStaff() {
             currentPageReportTemplate="Showing {first} to {last} of {totalRecords} staff"
             paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport RowsPerPageDropdown"
         >
+            <Column field="id" header="ID"></Column>
             <Column field="fullName" header="Họ và tên" sortable></Column>
             <Column field="shortName" header="Tên ngắn" sortable></Column>
             <Column field="phoneNumber" header="Số điện thoại" sortable></Column>
@@ -132,8 +109,7 @@ async function deleteStaff() {
             <Column header="Thao tác" style="width: 8rem">
                 <template #body="slotProps">
                     <div class="flex gap-2">
-                        <Button icon="pi pi-pencil" outlined rounded class="mr-2" @click="router.push(`/staff/edit/${slotProps.data.id}`)" />
-                        <Button icon="pi pi-trash" severity="danger" outlined rounded @click="confirmDelete(slotProps.data)" />
+                        <Button icon="pi pi-pencil" outlined rounded @click="router.push(`/staff/edit/${slotProps.data.id}`)" />
                     </div>
                 </template>
             </Column>
@@ -144,22 +120,6 @@ async function deleteStaff() {
             <i class="pi pi-search mb-4" style="font-size: 2rem"></i>
             <p>Không tìm thấy nhân viên nào</p>
         </div>
-
-        <!-- Delete Confirmation Dialog -->
-        <Dialog v-model:visible="deleteDialog" :style="{ width: '450px' }" header="Xác nhận xóa" :modal="true">
-            <div class="flex align-items-center gap-3">
-                <i class="pi pi-exclamation-triangle text-yellow-500" style="font-size: 2rem" />
-                <span>
-                    Bạn có chắc chắn muốn xóa nhân viên
-                    <b>{{ staffToDelete?.fullName }}</b
-                    >?
-                </span>
-            </div>
-            <template #footer>
-                <Button label="Không" icon="pi pi-times" @click="deleteDialog = false" class="p-button-text" />
-                <Button label="Có" icon="pi pi-check" @click="deleteStaff" severity="danger" outlined />
-            </template>
-        </Dialog>
     </div>
 </template>
 

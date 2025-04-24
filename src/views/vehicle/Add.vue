@@ -1,7 +1,9 @@
 <script setup>
 import { db } from '@/config/firebase';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { useToast } from 'primevue/usetoast';
 import { ref } from 'vue';
+import { useRouter } from 'vue-router';
 
 // Initial vehicle data structure
 const vehicleData = ref({
@@ -26,6 +28,10 @@ const errorMessage = ref('');
 const submitted = ref(false);
 const validationErrors = ref({});
 
+// Router and toast for navigation and notifications
+const router = useRouter();
+const toast = useToast();
+
 // Vehicle type options
 const vehicleTypes = [
     { label: 'Xe tải', value: 'TRUCK' },
@@ -48,29 +54,29 @@ const validateForm = () => {
         isValid = false;
     }
 
-    // Registration Date validation
-    if (!vehicleData.value.registrationDate) {
-        validationErrors.value.registrationDate = 'Vui lòng chọn ngày đăng ký';
-        isValid = false;
-    }
+    // // Registration Date validation
+    // if (!vehicleData.value.registrationDate) {
+    //     validationErrors.value.registrationDate = 'Vui lòng chọn ngày đăng ký';
+    //     isValid = false;
+    // }
 
-    // Manufacturer validation
-    if (!vehicleData.value.manufacturer) {
-        validationErrors.value.manufacturer = 'Vui lòng nhập hãng sản xuất';
-        isValid = false;
-    }
+    // // Manufacturer validation
+    // if (!vehicleData.value.manufacturer) {
+    //     validationErrors.value.manufacturer = 'Vui lòng nhập hãng sản xuất';
+    //     isValid = false;
+    // }
 
-    // Vehicle Type validation
-    if (!vehicleData.value.vehicleType) {
-        validationErrors.value.vehicleType = 'Vui lòng chọn loại xe';
-        isValid = false;
-    }
+    // // Vehicle Type validation
+    // if (!vehicleData.value.vehicleType) {
+    //     validationErrors.value.vehicleType = 'Vui lòng chọn loại xe';
+    //     isValid = false;
+    // }
 
-    // Capacity validation
-    if (!vehicleData.value.capacity || vehicleData.value.capacity <= 0) {
-        validationErrors.value.capacity = 'Vui lòng nhập tải trọng hợp lệ';
-        isValid = false;
-    }
+    // // Capacity validation
+    // if (!vehicleData.value.capacity || vehicleData.value.capacity <= 0) {
+    //     validationErrors.value.capacity = 'Vui lòng nhập tải trọng hợp lệ';
+    //     isValid = false;
+    // }
 
     return isValid;
 };
@@ -100,39 +106,23 @@ const saveVehicle = async () => {
         };
 
         await addDoc(vehiclesCollectionRef, vehicleDataToSave);
-        resetForm();
-        alert('Lưu thông tin xe thành công!');
+
+        // Show success toast notification
+        toast.add({
+            severity: 'success',
+            summary: 'Thành công',
+            detail: 'Lưu thông tin xe thành công!',
+            life: 3000
+        });
+
+        // Navigate back to vehicle list page
+        router.push('/vehicle/list');
     } catch (error) {
         console.error('Lỗi khi lưu thông tin xe:', error);
         errorMessage.value = 'Không thể lưu thông tin xe. Vui lòng thử lại.';
     } finally {
         loading.value = false;
     }
-};
-
-/**
- * Resets the form to its initial state
- */
-const resetForm = () => {
-    vehicleData.value = {
-        licensePlate: '',
-        registrationDate: '',
-        manufacturer: '',
-        model: '',
-        yearOfManufacture: null,
-        vehicleType: '',
-        chassisNumber: '',
-        engineNumber: '',
-        registrationExpiryDate: '',
-        insuranceExpiryDate: '',
-        capacity: null,
-        status: 'ACTIVE',
-        notes: ''
-    };
-
-    submitted.value = false;
-    validationErrors.value = {};
-    errorMessage.value = '';
 };
 </script>
 

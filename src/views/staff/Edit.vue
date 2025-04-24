@@ -1,13 +1,14 @@
 <script setup>
 import { db } from '@/config/firebase';
-import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { deleteDoc, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import Button from 'primevue/button';
-import InputText from 'primevue/inputtext';
 import DatePicker from 'primevue/calendar';
+import Dialog from 'primevue/dialog';
+import InputText from 'primevue/inputtext';
 import Panel from 'primevue/panel';
 import { useToast } from 'primevue/usetoast';
-import { ref, onMounted } from 'vue';
-import { useRouter, useRoute } from 'vue-router';
+import { onMounted, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 const router = useRouter();
 const route = useRoute();
 const toast = useToast();
@@ -27,6 +28,7 @@ const staffData = ref({
 });
 const loading = ref(false);
 const errorMessage = ref('');
+const deleteDialog = ref(false);
 const staffId = route.params.id;
 onMounted(async () => {
     await fetchStaffData();
@@ -65,14 +67,44 @@ const updateStaff = async () => {
         delete staffDataToUpdate.id;
         await updateDoc(staffRef, staffDataToUpdate);
         toast.add({ severity: 'success', summary: 'Thành công', detail: 'Đã cập nhật thông tin nhân viên', life: 3000 });
-        setTimeout(() => {
-            router.push('/staff/list');
-        }, 1500);
+        router.push('/staff/list');
     } catch (error) {
         console.error('Error updating staff:', error);
         errorMessage.value = 'Không thể cập nhật thông tin nhân viên. Vui lòng thử lại.';
     } finally {
         loading.value = false;
+    }
+};
+
+// Confirm delete dialog
+const confirmDelete = () => {
+    deleteDialog.value = true;
+};
+
+// Delete staff from Firestore
+const deleteStaff = async () => {
+    try {
+        const staffRef = doc(db, 'staff', staffId);
+        await deleteDoc(staffRef);
+
+        toast.add({
+            severity: 'success',
+            summary: 'Thành công',
+            detail: 'Đã xóa nhân viên',
+            life: 3000
+        });
+
+        router.push('/staff/list');
+    } catch (error) {
+        console.error('Error deleting staff:', error);
+        toast.add({
+            severity: 'error',
+            summary: 'Lỗi',
+            detail: 'Không thể xóa nhân viên. Vui lòng thử lại.',
+            life: 3000
+        });
+    } finally {
+        deleteDialog.value = false;
     }
 };
 </script>
@@ -111,8 +143,34 @@ const updateStaff = async () => {
                     <div class="flex flex-col gap-2"><label for="emergencyRelationship">Mối quan hệ</label> <InputText id="emergencyRelationship" v-model="staffData.emergencyContact.relationship" placeholder="Nhập mối quan hệ" /></div>
                 </div>
             </Panel>
-            <div class="flex justify-end gap-2 mt-4"><Button type="button" label="Hủy" severity="secondary" outlined @click="router.push('/staff/list')" /> <Button type="submit" label="Cập nhật" icon="pi pi-save" :loading="loading" /></div>
+            <!-- Action Buttons Row -->
+            <div class="flex justify-between items-center mt-4">
+                <!-- Delete Button (Left) -->
+                <Button type="button" label="Xóa" icon="pi pi-trash" severity="danger" @click="confirmDelete" outlined size="small" class="delete-btn" />
+
+                <!-- Save/Cancel Buttons (Right) -->
+                <div class="flex gap-2">
+                    <Button type="button" label="Hủy" severity="secondary" outlined @click="router.push('/staff/list')" />
+                    <Button type="submit" label="Cập nhật" icon="pi pi-save" :loading="loading" />
+                </div>
+            </div>
         </form>
+
+        <!-- Delete Confirmation Dialog -->
+        <Dialog v-model:visible="deleteDialog" :style="{ width: '450px' }" header="Xác nhận xóa" :modal="true">
+            <div class="flex align-items-center gap-3">
+                <i class="pi pi-exclamation-triangle text-yellow-500" style="font-size: 2rem" />
+                <span>
+                    Bạn có chắc chắn muốn xóa nhân viên
+                    <b>{{ staffData.fullName }}</b
+                    >?
+                </span>
+            </div>
+            <template #footer>
+                <Button label="Không" icon="pi pi-times" @click="deleteDialog = false" class="p-button-text" />
+                <Button label="Có" icon="pi pi-check" @click="deleteStaff" severity="danger" outlined />
+            </template>
+        </Dialog>
     </div>
 </template>
 <style scoped>

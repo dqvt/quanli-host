@@ -1,25 +1,36 @@
 <script setup>
 import { db } from '@/config/firebase';
-import { collection, getDocs, doc, deleteDoc } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import Button from 'primevue/button';
 import Column from 'primevue/column';
 import DataTable from 'primevue/datatable';
 import ProgressSpinner from 'primevue/progressspinner';
-import Dialog from 'primevue/dialog';
 import Tag from 'primevue/tag';
 import { useToast } from 'primevue/usetoast';
 import { onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 
 const router = useRouter();
+const route = useRoute();
 const toast = useToast();
 const vehicles = ref([]);
 const loading = ref(false);
-const deleteDialog = ref(false);
-const vehicleToDelete = ref(null);
 
 onMounted(() => {
     fetchVehicles();
+
+    // Check if redirected from direct access to add page
+    if (route.query.redirected === 'true') {
+        toast.add({
+            severity: 'info',
+            summary: 'Thông báo',
+            detail: 'Trang thêm xe mới chỉ có thể truy cập từ danh sách xe',
+            life: 5000
+        });
+
+        // Clean up the URL by removing the query parameter
+        router.replace({ path: route.path });
+    }
 });
 
 async function fetchVehicles() {
@@ -47,40 +58,6 @@ async function fetchVehicles() {
         });
     } finally {
         loading.value = false;
-    }
-}
-
-function confirmDelete(vehicle) {
-    vehicleToDelete.value = vehicle;
-    deleteDialog.value = true;
-}
-
-async function deleteVehicle() {
-    if (!vehicleToDelete.value) return;
-
-    try {
-        const vehicleRef = doc(db, 'vehicles', vehicleToDelete.value.id);
-        await deleteDoc(vehicleRef);
-
-        toast.add({
-            severity: 'success',
-            summary: 'Thành công',
-            detail: 'Đã xóa xe',
-            life: 3000
-        });
-
-        await fetchVehicles();
-    } catch (error) {
-        console.error('Error deleting vehicle:', error);
-        toast.add({
-            severity: 'error',
-            summary: 'Lỗi',
-            detail: 'Không thể xóa xe. Vui lòng thử lại.',
-            life: 3000
-        });
-    } finally {
-        deleteDialog.value = false;
-        vehicleToDelete.value = null;
     }
 }
 
@@ -130,27 +107,10 @@ function getStatusSeverity(status) {
                 <template #body="slotProps">
                     <div class="flex gap-2">
                         <Button icon="pi pi-pencil" outlined rounded @click="router.push(`/vehicle/edit/${slotProps.data.id}`)" />
-                        <Button icon="pi pi-trash" severity="danger" outlined rounded @click="confirmDelete(slotProps.data)" />
                     </div>
                 </template>
             </Column>
         </DataTable>
-
-        <!-- Delete Confirmation Dialog -->
-        <Dialog v-model:visible="deleteDialog" :style="{ width: '450px' }" header="Xác nhận xóa" :modal="true">
-            <div class="flex align-items-center gap-3">
-                <i class="pi pi-exclamation-triangle text-yellow-500" style="font-size: 2rem" />
-                <span>
-                    Bạn có chắc chắn muốn xóa xe biển số
-                    <b>{{ vehicleToDelete?.licensePlate }}</b
-                    >?
-                </span>
-            </div>
-            <template #footer>
-                <Button label="Không" icon="pi pi-times" @click="deleteDialog = false" class="p-button-text" />
-                <Button label="Có" icon="pi pi-check" @click="deleteVehicle" severity="danger" outlined />
-            </template>
-        </Dialog>
 
         <!-- Empty state -->
         <div v-if="!loading && vehicles.length === 0" class="text-center p-4">

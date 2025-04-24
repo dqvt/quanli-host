@@ -48,9 +48,7 @@ const saveCustomer = async () => {
         toast.add({ severity: 'success', summary: 'Thành công', detail: 'Đã lưu thông tin khách hàng', life: 3000 });
 
         // Navigate to customer list after successful save
-        setTimeout(() => {
-            router.push('/customer-list');
-        }, 1500);
+        router.push('/customer/list');
     } catch (error) {
         console.error('Lỗi khi lưu thông tin khách hàng:', error);
         errorMessage.value = 'Không thể lưu thông tin khách hàng. Vui lòng thử lại.';
@@ -111,7 +109,7 @@ const resetForm = () => {
             </Panel>
 
             <div class="flex justify-end gap-2 mt-4">
-                <Button type="button" label="Hủy" severity="secondary" outlined @click="router.push('/customer-list')" />
+                <Button type="button" label="Hủy" severity="secondary" outlined @click="router.push('/customer/list')" />
                 <Button type="submit" label="Lưu" icon="pi pi-save" :loading="loading" />
             </div>
         </form>

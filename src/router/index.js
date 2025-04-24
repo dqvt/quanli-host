@@ -7,13 +7,20 @@ const router = createRouter({
     routes: [
         {
             path: '/',
-            redirect: '/trip/list'
+            redirect: '/rules'
         },
         {
             path: '/',
             component: AppLayout,
             meta: { requiresAuth: true },
             children: [
+                // Rules page
+                {
+                    path: '/rules',
+                    name: 'Rules',
+                    component: () => import('@/views/rules/Rules.vue')
+                },
+
                 // Trip routes
                 {
                     path: '/trip/list',
@@ -23,18 +30,44 @@ const router = createRouter({
                 {
                     path: '/trip/add',
                     name: 'TripAdd',
-                    component: () => import('@/views/trip/Add.vue')
+                    component: () => import('@/views/trip/Add.vue'),
+                    beforeEnter: (_, from, next) => {
+                        // Only allow access if coming from the trip list page
+                        if (from.path === '/trip/list') {
+                            next();
+                        } else {
+                            // Redirect to trip list page with a notification
+                            next({
+                                path: '/trip/list',
+                                query: { redirected: 'true' }
+                            });
+                        }
+                    }
                 },
                 {
                     path: '/trip/by-staff',
                     name: 'TripByStaff',
                     component: () => import('@/views/trip/ByStaff.vue')
                 },
+
                 {
-                    path: '/trip/pending',
-                    name: 'TripPending',
-                    component: () => import('@/views/trip/Pending.vue')
+                    path: '/trip/edit/:id',
+                    name: 'TripEdit',
+                    component: () => import('@/views/trip/Edit.vue')
                 },
+
+                // Expense routes
+                {
+                    path: '/expense/list',
+                    name: 'ExpenseList',
+                    component: () => import('@/views/expense/StaffList.vue')
+                },
+                {
+                    path: '/expense/staff/:staffName',
+                    name: 'StaffBalance',
+                    component: () => import('@/views/expense/BalanceList.vue')
+                },
+                // Remove the '/expense/add' route
 
                 // Customer routes
                 {
@@ -45,7 +78,19 @@ const router = createRouter({
                 {
                     path: '/customer/add',
                     name: 'CustomerAdd',
-                    component: () => import('@/views/customer/Add.vue')
+                    component: () => import('@/views/customer/Add.vue'),
+                    beforeEnter: (_, from, next) => {
+                        // Only allow access if coming from the customer list page
+                        if (from.path === '/customer/list') {
+                            next();
+                        } else {
+                            // Redirect to customer list page with a notification
+                            next({
+                                path: '/customer/list',
+                                query: { redirected: 'true' }
+                            });
+                        }
+                    }
                 },
                 {
                     path: '/customer/edit/:id',
@@ -65,7 +110,19 @@ const router = createRouter({
                     path: '/staff/add',
                     name: 'StaffAdd',
                     component: () => import('@/views/staff/Add.vue'),
-                    meta: { requiresAuth: true }
+                    meta: { requiresAuth: true },
+                    beforeEnter: (_, from, next) => {
+                        // Only allow access if coming from the staff list page
+                        if (from.path === '/staff/list') {
+                            next();
+                        } else {
+                            // Redirect to staff list page with a notification
+                            next({
+                                path: '/staff/list',
+                                query: { redirected: 'true' }
+                            });
+                        }
+                    }
                 },
                 {
                     path: '/staff/edit/:id',
@@ -83,7 +140,19 @@ const router = createRouter({
                 {
                     path: '/vehicle/add',
                     name: 'VehicleAdd',
-                    component: () => import('@/views/vehicle/Add.vue')
+                    component: () => import('@/views/vehicle/Add.vue'),
+                    beforeEnter: (_, from, next) => {
+                        // Only allow access if coming from the vehicle list page
+                        if (from.path === '/vehicle/list') {
+                            next();
+                        } else {
+                            // Redirect to vehicle list page with a notification
+                            next({
+                                path: '/vehicle/list',
+                                query: { redirected: 'true' }
+                            });
+                        }
+                    }
                 },
                 {
                     path: '/vehicle/edit/:id',
@@ -120,7 +189,23 @@ const router = createRouter({
     ]
 });
 
-// Navigation guard
+// Navigation guard for trip edit/add pages
+router.beforeEach((to, from, next) => {
+    // Check if navigating away from trip edit or add page
+    if ((from.path.includes('/trip/edit/') || from.path === '/trip/add') && to.path !== from.path) {
+        // Show confirmation dialog
+        const confirmed = confirm('Bạn có chắc muốn rời đi?');
+        if (confirmed) {
+            next();
+        } else {
+            next(false);
+        }
+    } else {
+        next();
+    }
+});
+
+// Authentication guard
 router.beforeEach((to, _from, next) => {
     const authStore = useAuthStore();
 
@@ -144,7 +229,7 @@ router.beforeEach((to, _from, next) => {
             }
         } else {
             if (authStore.isAuthenticated && to.name === 'Login') {
-                next({ name: 'TripList' });
+                next({ name: 'Rules' });
             } else {
                 next();
             }

@@ -1,16 +1,17 @@
 <script setup>
 import { db } from '@/config/firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
-import { onMounted, ref } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
-import { useToast } from 'primevue/usetoast';
+import { deleteDoc, doc, getDoc, updateDoc } from 'firebase/firestore';
 import Button from 'primevue/button';
-import InputText from 'primevue/inputtext';
 import Calendar from 'primevue/calendar';
+import Dialog from 'primevue/dialog';
 import Dropdown from 'primevue/dropdown';
 import InputNumber from 'primevue/inputnumber';
-import Textarea from 'primevue/textarea';
+import InputText from 'primevue/inputtext';
 import Panel from 'primevue/panel';
+import Textarea from 'primevue/textarea';
+import { useToast } from 'primevue/usetoast';
+import { onMounted, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 
 const route = useRoute();
 const router = useRouter();
@@ -35,6 +36,7 @@ const vehicleData = ref({
 const loading = ref(false);
 const saving = ref(false);
 const errorMessage = ref('');
+const deleteDialog = ref(false);
 
 const vehicleTypes = [
     { label: 'Xe tải', value: 'TRUCK' },
@@ -116,6 +118,39 @@ async function saveVehicle() {
         });
     } finally {
         saving.value = false;
+    }
+}
+
+// Confirm delete dialog
+function confirmDelete() {
+    deleteDialog.value = true;
+}
+
+// Delete vehicle from Firestore
+async function deleteVehicle() {
+    try {
+        const vehicleId = route.params.id;
+        const vehicleRef = doc(db, 'vehicles', vehicleId);
+        await deleteDoc(vehicleRef);
+
+        toast.add({
+            severity: 'success',
+            summary: 'Thành công',
+            detail: 'Đã xóa xe',
+            life: 3000
+        });
+
+        router.push('/vehicle/list');
+    } catch (error) {
+        console.error('Error deleting vehicle:', error);
+        toast.add({
+            severity: 'error',
+            summary: 'Lỗi',
+            detail: 'Không thể xóa xe. Vui lòng thử lại.',
+            life: 3000
+        });
+    } finally {
+        deleteDialog.value = false;
     }
 }
 </script>
@@ -227,11 +262,35 @@ async function saveVehicle() {
                 </div>
             </Panel>
 
-            <!-- Submit Buttons -->
-            <div class="flex justify-end gap-2 mt-4">
-                <Button type="button" label="Hủy" @click="router.push('/vehicle/list')" class="p-button-secondary" :disabled="saving" />
-                <Button type="submit" label="Lưu thay đổi" icon="pi pi-save" :loading="saving" />
+            <!-- Action Buttons Row -->
+            <div class="flex justify-between items-center mt-4">
+                <!-- Delete Button (Left) -->
+                <Button type="button" label="Xóa" icon="pi pi-trash" severity="danger" @click="confirmDelete" outlined size="small" class="delete-btn" />
+
+                <!-- Save/Cancel Buttons (Right) -->
+                <div class="flex gap-2">
+                    <Button type="button" label="Hủy" @click="router.push('/vehicle/list')" class="p-button-secondary" :disabled="saving" />
+                    <Button type="submit" label="Lưu thay đổi" icon="pi pi-save" :loading="saving" />
+                </div>
             </div>
         </form>
+
+        <!-- Delete Confirmation Dialog -->
+        <Dialog v-model:visible="deleteDialog" :style="{ width: '450px' }" header="Xác nhận xóa" :modal="true">
+            <div class="flex align-items-center gap-3">
+                <i class="pi pi-exclamation-triangle text-yellow-500" style="font-size: 2rem" />
+                <span>
+                    Bạn có chắc chắn muốn xóa xe biển số
+                    <b>{{ vehicleData.licensePlate }}</b
+                    >?
+                </span>
+            </div>
+            <template #footer>
+                <Button label="Không" icon="pi pi-times" @click="deleteDialog = false" class="p-button-text" />
+                <Button label="Có" icon="pi pi-check" @click="deleteVehicle" severity="danger" outlined />
+            </template>
+        </Dialog>
     </div>
 </template>
+
+<style scoped></style>

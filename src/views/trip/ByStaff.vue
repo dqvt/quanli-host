@@ -8,13 +8,16 @@ import DataTable from 'primevue/datatable';
 import ProgressSpinner from 'primevue/progressspinner';
 import Tag from 'primevue/tag';
 import { onMounted, ref, watch } from 'vue';
+import { useTripList } from './tripmixin';
+
+// Get staff list from the mixin
+const { staffList, fetchStaffList } = useTripList();
 
 // Reactive state using individual refs for better reactivity
 const selectedDriver = ref('');
-const drivers = ref([]);
 const trips = ref([]);
 const loading = ref(false);
-const filteredDrivers = ref([]);
+const filteredStaff = ref([]);
 
 // Firebase collection reference
 const tripsRef = collection(db, 'trips');
@@ -42,23 +45,10 @@ async function fetchTrips(driverFilter = '') {
     }
 }
 
-// Fetch and process drivers data
-async function fetchDrivers() {
-    try {
-        const querySnapshot = await getDocs(tripsRef);
-        const uniqueDrivers = new Set(querySnapshot.docs.map((doc) => doc.data().driverName).filter(Boolean));
-        drivers.value = Array.from(uniqueDrivers).sort();
-        console.log('Fetched drivers:', drivers.value); // Debug log
-    } catch (error) {
-        console.error('Error fetching drivers:', error);
-        drivers.value = []; // Reset drivers on error
-    }
-}
-
-// Search drivers for autocomplete
-function searchDrivers(event) {
+// Search staff for autocomplete
+function searchStaff(event) {
     const searchQuery = event.query.toLowerCase();
-    filteredDrivers.value = drivers.value.filter((driver) => driver.toLowerCase().startsWith(searchQuery));
+    filteredStaff.value = staffList.value.filter((staff) => staff.label.toLowerCase().includes(searchQuery)).map((staff) => staff.label);
 }
 
 // Status helper
@@ -72,7 +62,7 @@ const getStatusSeverity = (status) =>
 
 // Initialize data
 onMounted(async () => {
-    await fetchDrivers();
+    await fetchStaffList();
     await fetchTrips();
 });
 
@@ -88,7 +78,7 @@ watch(selectedDriver, (newValue) => {
         <div class="card">
             <h3 class="font-semibold text-xl mb-4">Lọc theo tài xế</h3>
             <div class="flex flex-col gap-4">
-                <AutoComplete v-model="selectedDriver" :suggestions="filteredDrivers" placeholder="Nhập tên tài xế" class="w-full" @complete="searchDrivers">
+                <AutoComplete v-model="selectedDriver" :suggestions="filteredStaff" placeholder="Nhập tên tài xế" class="w-full" @complete="searchStaff">
                     <template #item="{ item }">
                         <div class="flex align-items-center">
                             <span class="pi pi-user mr-2"></span>
