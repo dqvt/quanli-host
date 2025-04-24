@@ -1,5 +1,6 @@
 <script setup>
 import Button from 'primevue/button';
+import DatePicker from 'primevue/calendar';
 import Column from 'primevue/column';
 import DataTable from 'primevue/datatable';
 import Dialog from 'primevue/dialog';
@@ -84,11 +85,11 @@ onMounted(() => {
                     <div class="filter-item date-range-container">
                         <div class="date-range-item">
                             <span class="filter-label">Từ ngày:</span>
-                            <DatePicker v-model="startDateFilter" dateFormat="dd/mm/yy" placeholder="Từ ngày" showIcon class="filter-input" />
+                            <DatePicker v-model="startDateFilter" dateFormat="dd/mm/yy" placeholder="Từ ngày" showIcon class="filter-input date-picker-large" />
                         </div>
                         <div class="date-range-item">
                             <span class="filter-label">Đến ngày:</span>
-                            <DatePicker v-model="endDateFilter" dateFormat="dd/mm/yy" placeholder="Đến ngày" showIcon class="filter-input" />
+                            <DatePicker v-model="endDateFilter" dateFormat="dd/mm/yy" placeholder="Đến ngày" showIcon class="filter-input date-picker-large" />
                         </div>
                     </div>
                     <div class="filter-item">
@@ -277,13 +278,86 @@ onMounted(() => {
 /* Date range styling */
 .date-range-container {
     display: flex;
-    gap: 0.5rem;
+    gap: 1rem;
+    flex: 2; /* Give more space to the date range container */
 }
 
 .date-range-item {
     display: flex;
     align-items: center;
     flex: 1;
+}
+
+/* Larger date picker styling */
+:deep(.date-picker-large) {
+    .p-calendar {
+        width: 100%;
+    }
+
+    .p-inputtext {
+        font-size: 1.1rem;
+        padding: 0.85rem;
+        height: auto;
+        border-width: 2px;
+    }
+
+    .p-datepicker-trigger {
+        width: 3.5rem;
+        height: 100%;
+
+        .p-button-icon {
+            font-size: 1.4rem;
+        }
+    }
+}
+
+/* Make the calendar panel larger when opened */
+:deep(.p-datepicker) {
+    font-size: 1.1rem;
+    padding: 0.75rem;
+
+    .p-datepicker-header {
+        padding: 0.75rem;
+
+        .p-datepicker-title {
+            margin: 0 2.5rem;
+
+            .p-datepicker-year,
+            .p-datepicker-month {
+                font-size: 1.2rem;
+                font-weight: 600;
+            }
+        }
+
+        .p-datepicker-prev,
+        .p-datepicker-next {
+            width: 2.5rem;
+            height: 2.5rem;
+
+            span {
+                font-size: 1.2rem;
+            }
+        }
+    }
+
+    table {
+        font-size: 1.1rem;
+        margin: 0.5rem 0;
+
+        th {
+            padding: 0.75rem;
+        }
+
+        td {
+            padding: 0.5rem;
+
+            > span {
+                width: 2.8rem;
+                height: 2.8rem;
+                line-height: 2.8rem;
+            }
+        }
+    }
 }
 
 /* Action buttons styling */
@@ -324,14 +398,31 @@ onMounted(() => {
 
     .date-range-container {
         flex-direction: column;
+        flex: 1;
     }
 
     .date-range-item {
-        margin-bottom: 0.5rem;
+        margin-bottom: 1rem;
+        width: 100%;
     }
 
     .date-range-item:last-child {
         margin-bottom: 0;
+    }
+
+    /* Ensure date pickers are still large on mobile */
+    :deep(.date-picker-large) {
+        width: 100%;
+
+        .p-calendar {
+            width: 100%;
+        }
+
+        .p-inputtext {
+            width: 100%;
+            font-size: 1rem;
+            padding: 0.75rem;
+        }
     }
 
     .action-buttons {
