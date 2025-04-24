@@ -44,11 +44,6 @@ const router = createRouter({
                         }
                     }
                 },
-                {
-                    path: '/trip/by-staff',
-                    name: 'TripByStaff',
-                    component: () => import('@/views/trip/ByStaff.vue')
-                },
 
                 {
                     path: '/trip/edit/:id',

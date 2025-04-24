@@ -21,26 +21,7 @@ const translateStatus = (status) => {
     return translations[status] || status;
 };
 
-const {
-    filteredTrips,
-    loading,
-    router,
-    fetchStaffList,
-    fetchCustomerList,
-    fetchTrips,
-    checkRedirectNotification,
-    approveTrip,
-    approvingTripId,
-    driverFilterValue,
-    assistantFilterValue,
-    customerFilterValue,
-    startDateFilter,
-    endDateFilter,
-    statusFilter,
-    statusOptions,
-    staffList,
-    customerList
-} = useTripList();
+const { filteredTrips, loading, fetchData, approveTrip, approvingTripId, driverFilterValue, assistantFilterValue, customerFilterValue, startDateFilter, endDateFilter, statusFilter, statusOptions, staffList, customerList } = useTripList();
 
 // Add confirmation dialog functionality
 const confirmDialog = ref(false);
@@ -62,10 +43,9 @@ const handleApprove = () => {
 };
 
 onMounted(() => {
-    fetchStaffList();
-    fetchCustomerList();
-    fetchTrips();
-    checkRedirectNotification();
+    fetchData.staff();
+    fetchData.customers();
+    fetchData.trips();
 });
 </script>
 
@@ -119,7 +99,7 @@ onMounted(() => {
             </div>
 
             <div class="flex justify-between items-center mb-4">
-                <Button label="Thêm chuyến xe mới" icon="pi pi-plus" @click="router.push('/trip/add')" />
+                <Button label="Thêm chuyến xe mới" icon="pi pi-plus" @click="$router.push('/trip/add')" />
             </div>
             <!-- Loading indicator -->
             <div v-if="loading" class="flex justify-center items-center p-4">
@@ -213,7 +193,7 @@ onMounted(() => {
                 <Column header="Thao tác" :exportable="false" style="min-width: 12rem">
                     <template #body="slotProps">
                         <div class="action-buttons">
-                            <Button icon="pi pi-pencil" label="Sửa" outlined size="small" class="edit-button p-button-sm" @click="router.push(`/trip/edit/${slotProps.data.id}`)" tooltip="Chỉnh sửa chuyến xe" />
+                            <Button icon="pi pi-pencil" label="Sửa" outlined size="small" class="edit-button p-button-sm" @click="$router.push(`/trip/edit/${slotProps.data.id}`)" tooltip="Chỉnh sửa chuyến xe" />
                             <Button
                                 v-if="slotProps.data.status === 'PENDING'"
                                 icon="pi pi-check"

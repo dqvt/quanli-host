@@ -17,15 +17,13 @@ onMounted(async () => {
 
 // Custom success handler for public trip submission
 const handlePublicSuccess = () => {
-    // Show toast notification
     toast.add({
         severity: 'success',
         summary: 'Thành công',
-        detail: 'Chuyến đi đã được lưu thành công!',
+        detail: 'Chuyến đi đã được lưu thành công và đang chờ phê duyệt!',
         life: 3000
     });
 
-    // Reload the page after a short delay to allow the toast to be seen
     setTimeout(() => {
         window.location.reload();
     }, 1000);
@@ -33,8 +31,7 @@ const handlePublicSuccess = () => {
 
 // Custom submit handler for public trip submission
 const submitPublicTrip = () => {
-    // Pass true for isPublic and the custom success handler
-    handleSubmit(true, handlePublicSuccess);
+    handleSubmit(handlePublicSuccess);
 };
 
 // Handle cancel - just reset the form instead of navigating

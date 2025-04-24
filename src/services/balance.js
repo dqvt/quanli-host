@@ -466,55 +466,67 @@ export const setStaffBalance = async (staffShortName, newBalance, reason, date) 
  */
 export const updateBalanceForTripExpenses = async (tripId) => {
     try {
+        console.log('updateBalanceForTripExpenses called with tripId:', tripId);
+
         if (!tripId) throw new Error('Trip ID is required');
 
-        // Get all expenses for this trip
         const expensesCollection = collection(db, 'expenses');
         const expensesQuery = query(expensesCollection, where('tripId', '==', tripId));
         const expensesSnapshot = await getDocs(expensesQuery);
+
+        console.log(`Found ${expensesSnapshot.size} expenses for trip ${tripId}`);
 
         if (expensesSnapshot.empty) {
             console.log(`No expenses found for trip ${tripId}`);
             return [];
         }
 
-        const updatedExpenses = [];
+        const updatedExpenses = await Promise.all(
+            expensesSnapshot.docs.map(async (expenseDoc) => {
+                const expenseId = expenseDoc.id;
+                const expenseData = expenseDoc.data();
 
-        // Process each expense
-        for (const expenseDoc of expensesSnapshot.docs) {
-            const expenseData = expenseDoc.data();
-            const expenseId = expenseDoc.id;
+                console.log('Processing expense:', { id: expenseId, ...expenseData });
 
-            // Skip if balance has already been updated
-            if (expenseData.balanceUpdated) {
-                console.log(`Balance already updated for expense ${expenseId}`);
-                updatedExpenses.push({ id: expenseId, ...expenseData });
-                continue;
-            }
+                // Only update balance if it hasn't been updated before
+                if (!expenseData.balanceUpdated) {
+                    console.log('Expense balance not updated yet, updating now...');
 
-            // Update the staff balance
-            const staffShortName = expenseData.staffShortName;
-            const amount = expenseData.amount;
-            const reason = expenseData.reason;
-            const createdDate = expenseData.createdDate ? new Date(expenseData.createdDate) : new Date();
+                    if (!expenseData.staffShortName) {
+                        console.error('Missing staffShortName in expense:', expenseId);
+                        throw new Error('Missing staffShortName in expense');
+                    }
 
-            // Update the balance
-            await addExpense(staffShortName, amount, reason, createdDate);
+                    // Update the staff balance
+                    await updateBalance(
+                        expenseData.staffShortName,
+                        expenseData.amount,
+                        expenseData.reason || 'Chi phí chuyến đi',
+                        expenseData.createdDate ? new Date(expenseData.createdDate) : new Date(),
+                        false // isCredit = false because this is an expense
+                    );
 
-            // Mark the expense as having its balance updated
-            const expenseDocRef = doc(db, 'expenses', expenseId);
-            await updateDoc(expenseDocRef, {
-                balanceUpdated: true,
-                updatedAt: serverTimestamp()
-            });
+                    // Mark the expense as having its balance updated
+                    const expenseDocRef = doc(db, 'expenses', expenseId);
+                    await updateDoc(expenseDocRef, {
+                        balanceUpdated: true,
+                        updatedAt: serverTimestamp()
+                    });
 
-            updatedExpenses.push({
-                id: expenseId,
-                ...expenseData,
-                balanceUpdated: true
-            });
-        }
+                    console.log('Expense balance updated successfully');
+                } else {
+                    console.log('Expense balance already updated, skipping');
+                }
 
+                return {
+                    id: expenseId,
+                    ...expenseData,
+                    balanceUpdated: true
+                };
+            })
+        );
+
+        console.log('All expenses updated successfully:', updatedExpenses);
         return updatedExpenses;
     } catch (error) {
         console.error('Error updating balance for trip expenses:', error);

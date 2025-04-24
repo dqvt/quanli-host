@@ -2,6 +2,57 @@ import { db } from '@/config/firebase';
 import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import * as balanceService from './balance';
 
+// Constants
+const EXPENSES_COLLECTION = 'expenses';
+
+// Helper functions
+const validateBaseExpenseData = (amount, createdDate, reason, staffFullName, staffId) => {
+    if (amount === null || amount === undefined) throw new Error('Amount is required');
+    if (!createdDate) throw new Error('Created date is required');
+    if (!reason) throw new Error('Reason is required');
+    if (!staffFullName) throw new Error('Staff full name is required');
+    if (!staffId) throw new Error('Staff ID is required');
+};
+
+const formatExpenseDate = (date) => {
+    return date instanceof Date ? date : new Date(date);
+};
+
+const getStaffById = async (staffId) => {
+    const staffDoc = await getDoc(doc(db, 'staff', staffId));
+    if (!staffDoc.exists()) {
+        throw new Error(`Staff with ID ${staffId} not found`);
+    }
+    return staffDoc.data();
+};
+
+const createBaseExpenseData = (amount, formattedDate, reason, staffFullName, staffId, staffShortName, tripId, description) => ({
+    amount: Math.abs(amount),
+    createdDate: formattedDate.toISOString(),
+    reason,
+    staffFullName,
+    staffId,
+    staffShortName,
+    tripId,
+    description,
+    isCredit: false,
+    createdAt: serverTimestamp()
+});
+
+const formatExpenseResponse = (docId, expenseData, formattedDate) => ({
+    id: docId,
+    ...expenseData,
+    createdDate: formattedDate
+});
+
+const sortExpensesByDate = (expenses) => {
+    return expenses.sort((a, b) => {
+        if (!a.createdDate) return 1;
+        if (!b.createdDate) return -1;
+        return b.createdDate - a.createdDate;
+    });
+};
+
 /**
  * Create a new expense record and update staff balance
  * @param {number} amount - Expense amount (positive value)
@@ -15,49 +66,20 @@ import * as balanceService from './balance';
  */
 export const createExpense = async (amount, createdDate, reason, staffFullName, staffId, tripId = null, description = '') => {
     try {
-        // Validate inputs
-        if (amount === null || amount === undefined) throw new Error('Amount is required');
-        if (!createdDate) throw new Error('Created date is required');
-        if (!reason) throw new Error('Reason is required');
-        if (!staffFullName) throw new Error('Staff full name is required');
-        if (!staffId) throw new Error('Staff ID is required');
+        validateBaseExpenseData(amount, createdDate, reason, staffFullName, staffId);
 
-        // Ensure amount is always positive
-        const positiveAmount = Math.abs(amount);
-        const formattedDate = createdDate instanceof Date ? createdDate : new Date(createdDate);
-
-        // Get staff document to get the short name
+        const formattedDate = formatExpenseDate(createdDate);
         const staffDoc = await getStaffById(staffId);
-        if (!staffDoc) {
-            throw new Error(`Staff with ID ${staffId} not found`);
-        }
-        const staffShortName = staffDoc.shortName;
 
-        // Create expense document
-        const expenseData = {
-            amount: positiveAmount,
-            createdDate: formattedDate.toISOString(),
-            reason,
-            staffFullName,
-            staffId,
-            staffShortName,
-            tripId,
-            description,
-            isCredit: false, // Expenses always decrease balance
-            createdAt: serverTimestamp()
-        };
+        const expenseData = createBaseExpenseData(amount, formattedDate, reason, staffFullName, staffId, staffDoc.shortName, tripId, description);
 
-        const expensesCollectionRef = collection(db, 'expenses');
+        const expensesCollectionRef = collection(db, EXPENSES_COLLECTION);
         const docRef = await addDoc(expensesCollectionRef, expenseData);
 
-        // Update the staff balance (decrease balance for expense)
-        await balanceService.addExpense(staffShortName, positiveAmount, reason, formattedDate);
+        // Update the staff balance
+        await balanceService.addExpense(staffDoc.shortName, expenseData.amount, reason, formattedDate);
 
-        return {
-            id: docRef.id,
-            ...expenseData,
-            createdDate: formattedDate
-        };
+        return formatExpenseResponse(docRef.id, expenseData, formattedDate);
     } catch (error) {
         console.error('Error creating expense:', error);
         throw error;
@@ -78,50 +100,51 @@ export const createExpense = async (amount, createdDate, reason, staffFullName, 
  */
 export const createExpenseWithoutBalanceUpdate = async (amount, createdDate, reason, staffFullName, staffId, tripId, description = '') => {
     try {
-        // Validate inputs
-        if (amount === null || amount === undefined) throw new Error('Amount is required');
-        if (!createdDate) throw new Error('Created date is required');
-        if (!reason) throw new Error('Reason is required');
-        if (!staffFullName) throw new Error('Staff full name is required');
-        if (!staffId) throw new Error('Staff ID is required');
+        validateBaseExpenseData(amount, createdDate, reason, staffFullName, staffId);
         if (!tripId) throw new Error('Trip ID is required for expenses without balance update');
 
-        // Ensure amount is always positive
-        const positiveAmount = Math.abs(amount);
-        const formattedDate = createdDate instanceof Date ? createdDate : new Date(createdDate);
-
-        // Get staff document to get the short name
+        const formattedDate = formatExpenseDate(createdDate);
         const staffDoc = await getStaffById(staffId);
-        if (!staffDoc) {
-            throw new Error(`Staff with ID ${staffId} not found`);
-        }
-        const staffShortName = staffDoc.shortName;
 
-        // Create expense document
         const expenseData = {
-            amount: positiveAmount,
-            createdDate: formattedDate.toISOString(),
-            reason,
-            staffFullName,
-            staffId,
-            staffShortName,
-            tripId,
-            description,
-            isCredit: false, // Expenses always decrease balance
-            balanceUpdated: false, // Flag to indicate balance has not been updated yet
-            createdAt: serverTimestamp()
+            ...createBaseExpenseData(amount, formattedDate, reason, staffFullName, staffId, staffDoc.shortName, tripId, description),
+            balanceUpdated: false
         };
 
-        const expensesCollectionRef = collection(db, 'expenses');
+        const expensesCollectionRef = collection(db, EXPENSES_COLLECTION);
         const docRef = await addDoc(expensesCollectionRef, expenseData);
 
-        return {
-            id: docRef.id,
-            ...expenseData,
-            createdDate: formattedDate
-        };
+        return formatExpenseResponse(docRef.id, expenseData, formattedDate);
     } catch (error) {
         console.error('Error creating expense without balance update:', error);
+        throw error;
+    }
+};
+
+/**
+ * Get expenses with common query logic
+ * @param {Object} queryParams - Query parameters
+ * @returns {Promise<Array>} - Array of expense documents
+ */
+const getExpenses = async (queryParams = null) => {
+    try {
+        const expensesCollection = collection(db, EXPENSES_COLLECTION);
+        const expensesQuery = queryParams ? query(expensesCollection, where(queryParams.field, '==', queryParams.value)) : query(expensesCollection);
+
+        const expensesSnapshot = await getDocs(expensesQuery);
+
+        const expenses = expensesSnapshot.docs.map((doc) => {
+            const data = doc.data();
+            return {
+                id: doc.id,
+                ...data,
+                createdDate: data.createdDate ? new Date(data.createdDate) : null
+            };
+        });
+
+        return sortExpensesByDate(expenses);
+    } catch (error) {
+        console.error('Error getting expenses:', error);
         throw error;
     }
 };
@@ -132,35 +155,8 @@ export const createExpenseWithoutBalanceUpdate = async (amount, createdDate, rea
  * @returns {Promise<Array>} - Array of expense documents
  */
 export const getExpensesByStaffId = async (staffId) => {
-    try {
-        if (!staffId) throw new Error('Staff ID is required');
-
-        const expensesCollection = collection(db, 'expenses');
-        const expensesQuery = query(expensesCollection, where('staffId', '==', staffId));
-        const expensesSnapshot = await getDocs(expensesQuery);
-
-        const expenses = [];
-        expensesSnapshot.forEach((doc) => {
-            const data = doc.data();
-            expenses.push({
-                id: doc.id,
-                ...data,
-                createdDate: data.createdDate ? new Date(data.createdDate) : null
-            });
-        });
-
-        // Sort expenses by date (newest first)
-        expenses.sort((a, b) => {
-            if (!a.createdDate) return 1;
-            if (!b.createdDate) return -1;
-            return b.createdDate - a.createdDate;
-        });
-
-        return expenses;
-    } catch (error) {
-        console.error('Error getting expenses by staff ID:', error);
-        throw error;
-    }
+    if (!staffId) throw new Error('Staff ID is required');
+    return getExpenses({ field: 'staffId', value: staffId });
 };
 
 /**
@@ -169,35 +165,8 @@ export const getExpensesByStaffId = async (staffId) => {
  * @returns {Promise<Array>} - Array of expense documents
  */
 export const getExpensesByTripId = async (tripId) => {
-    try {
-        if (!tripId) throw new Error('Trip ID is required');
-
-        const expensesCollection = collection(db, 'expenses');
-        const expensesQuery = query(expensesCollection, where('tripId', '==', tripId));
-        const expensesSnapshot = await getDocs(expensesQuery);
-
-        const expenses = [];
-        expensesSnapshot.forEach((doc) => {
-            const data = doc.data();
-            expenses.push({
-                id: doc.id,
-                ...data,
-                createdDate: data.createdDate ? new Date(data.createdDate) : null
-            });
-        });
-
-        // Sort expenses by date (newest first)
-        expenses.sort((a, b) => {
-            if (!a.createdDate) return 1;
-            if (!b.createdDate) return -1;
-            return b.createdDate - a.createdDate;
-        });
-
-        return expenses;
-    } catch (error) {
-        console.error('Error getting expenses by trip ID:', error);
-        throw error;
-    }
+    if (!tripId) throw new Error('Trip ID is required');
+    return getExpenses({ field: 'tripId', value: tripId });
 };
 
 /**
@@ -205,32 +174,7 @@ export const getExpensesByTripId = async (tripId) => {
  * @returns {Promise<Array>} - Array of all expense documents
  */
 export const getAllExpenses = async () => {
-    try {
-        const expensesCollection = collection(db, 'expenses');
-        const expensesSnapshot = await getDocs(expensesCollection);
-
-        const expenses = [];
-        expensesSnapshot.forEach((doc) => {
-            const data = doc.data();
-            expenses.push({
-                id: doc.id,
-                ...data,
-                createdDate: data.createdDate ? new Date(data.createdDate) : null
-            });
-        });
-
-        // Sort expenses by date (newest first)
-        expenses.sort((a, b) => {
-            if (!a.createdDate) return 1;
-            if (!b.createdDate) return -1;
-            return b.createdDate - a.createdDate;
-        });
-
-        return expenses;
-    } catch (error) {
-        console.error('Error getting all expenses:', error);
-        throw error;
-    }
+    return getExpenses();
 };
 
 /**
@@ -308,32 +252,6 @@ export const getExpensesSummaryByStaff = async () => {
 };
 
 /**
- * Get staff document by ID
- * @param {string} staffId - Staff ID
- * @returns {Promise<Object|null>} - Staff document or null if not found
- */
-export const getStaffById = async (staffId) => {
-    try {
-        if (!staffId) throw new Error('Staff ID is required');
-
-        const staffDocRef = doc(db, 'staff', staffId);
-        const staffDoc = await getDoc(staffDocRef);
-
-        if (!staffDoc.exists()) {
-            return null;
-        }
-
-        return {
-            id: staffDoc.id,
-            ...staffDoc.data()
-        };
-    } catch (error) {
-        console.error('Error getting staff by ID:', error);
-        throw error;
-    }
-};
-
-/**
  * Update an expense record and update the staff balance based on the difference
  * @param {string} expenseId - ID of the expense to update
  * @param {number} newAmount - New expense amount (positive value)
@@ -347,27 +265,12 @@ export const getStaffById = async (staffId) => {
  */
 export const updateExpenseAndBalance = async (expenseId, newAmount, createdDate, reason, staffFullName, staffId, tripId = null, description = '') => {
     try {
-        // Validate inputs
         if (!expenseId) throw new Error('Expense ID is required');
-        if (newAmount === null || newAmount === undefined) throw new Error('Amount is required');
-        if (!createdDate) throw new Error('Created date is required');
-        if (!reason) throw new Error('Reason is required');
-        if (!staffFullName) throw new Error('Staff full name is required');
-        if (!staffId) throw new Error('Staff ID is required');
+        validateBaseExpenseData(newAmount, createdDate, reason, staffFullName, staffId);
 
-        // Ensure amount is always positive
-        const positiveNewAmount = Math.abs(newAmount);
-        const formattedDate = createdDate instanceof Date ? createdDate : new Date(createdDate);
-
-        // Get staff document to get the short name
+        const formattedDate = formatExpenseDate(createdDate);
         const staffDoc = await getStaffById(staffId);
-        if (!staffDoc) {
-            throw new Error(`Staff with ID ${staffId} not found`);
-        }
-        const staffShortName = staffDoc.shortName;
-
-        // Get the current expense to calculate the difference
-        const expenseDocRef = doc(db, 'expenses', expenseId);
+        const expenseDocRef = doc(db, EXPENSES_COLLECTION, expenseId);
         const expenseDoc = await getDoc(expenseDocRef);
 
         if (!expenseDoc.exists()) {
@@ -376,43 +279,25 @@ export const updateExpenseAndBalance = async (expenseId, newAmount, createdDate,
 
         const currentExpenseData = expenseDoc.data();
         const currentAmount = currentExpenseData.amount || 0;
+        const amountDifference = Math.abs(newAmount) - currentAmount;
 
-        // Calculate the difference (positive means the expense increased, negative means it decreased)
-        const amountDifference = positiveNewAmount - currentAmount;
-
-        // Update expense document
         const expenseData = {
-            amount: positiveNewAmount,
-            createdDate: formattedDate.toISOString(),
-            reason,
-            staffFullName,
-            staffId,
-            staffShortName,
-            tripId,
-            description,
+            ...createBaseExpenseData(newAmount, formattedDate, reason, staffFullName, staffId, staffDoc.shortName, tripId, description),
             updatedAt: serverTimestamp()
         };
 
         await updateDoc(expenseDocRef, expenseData);
 
-        // Only update the balance if there's a difference
+        // Update balance if there's a difference
         if (amountDifference !== 0) {
-            // If amountDifference is positive, we need to decrease the balance more
-            // If amountDifference is negative, we need to increase the balance (or decrease it less)
             if (amountDifference > 0) {
-                // Expense increased, decrease balance more
-                await balanceService.addExpense(staffShortName, Math.abs(amountDifference), reason, formattedDate);
+                await balanceService.addExpense(staffDoc.shortName, Math.abs(amountDifference), reason, formattedDate);
             } else {
-                // Expense decreased, increase balance
-                await balanceService.addCredit(staffShortName, Math.abs(amountDifference), reason, formattedDate);
+                await balanceService.addCredit(staffDoc.shortName, Math.abs(amountDifference), reason, formattedDate);
             }
         }
 
-        return {
-            id: expenseId,
-            ...expenseData,
-            createdDate: formattedDate
-        };
+        return formatExpenseResponse(expenseId, expenseData, formattedDate);
     } catch (error) {
         console.error('Error updating expense and balance:', error);
         throw error;
