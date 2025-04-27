@@ -2,19 +2,19 @@
 
 .layout-topbar {
     position: fixed;
-    height: 4rem;
+    height: 3.5rem;
     z-index: 997;
     left: 0;
     top: 0;
     width: 100%;
-    padding: 0 2rem;
+    padding: 0 1rem;
     background-color: var(--surface-card);
     transition: left var(--layout-section-transition-duration);
     display: flex;
     align-items: center;
 
     .layout-topbar-logo-container {
-        width: 16rem;
+        width: 14rem;
         display: flex;
         align-items: center;
     }
@@ -98,7 +98,7 @@
 
 @media (max-width: 991px) {
     .layout-topbar {
-        padding: 0 2rem;
+        padding: 0 1rem;
 
         .layout-topbar-logo-container {
             width: auto;

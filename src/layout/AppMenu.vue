@@ -18,7 +18,10 @@ const model = ref([
     },
     {
         label: 'Quản lý thông tin khách hàng',
-        items: [{ label: 'Danh sách khách hàng', icon: 'pi pi-fw pi-users', to: '/customer/list', class: 'rotated-icon' }]
+        items: [
+            { label: 'Danh sách khách hàng', icon: 'pi pi-fw pi-users', to: '/customer/list', class: 'rotated-icon' },
+            { label: 'Công nợ khách hàng', icon: 'pi pi-fw pi-money-bill', to: '/customer/debt', class: 'rotated-icon' }
+        ]
     },
     {
         label: 'Quản lý nhân viên',

@@ -18,19 +18,20 @@ const router = createRouter({
                 {
                     path: '/rules',
                     name: 'Rules',
-                    component: () => import('@/views/rules/Rules.vue')
+                    component: () => import('@/components/Rules.vue')
                 },
 
                 // Trip routes
                 {
                     path: '/trip/list',
                     name: 'TripList',
-                    component: () => import('@/views/trip/List.vue')
+                    component: () => import('@/components/TripList.vue')
                 },
+
                 {
                     path: '/trip/add',
                     name: 'TripAdd',
-                    component: () => import('@/views/trip/Add.vue'),
+                    component: () => import('@/components/TripAdd.vue'),
                     beforeEnter: (_, from, next) => {
                         // Only allow access if coming from the trip list page
                         if (from.path === '/trip/list') {
@@ -48,19 +49,19 @@ const router = createRouter({
                 {
                     path: '/trip/edit/:id',
                     name: 'TripEdit',
-                    component: () => import('@/views/trip/Edit.vue')
+                    component: () => import('@/components/TripEdit.vue')
                 },
 
                 // Expense routes
                 {
                     path: '/expense/list',
                     name: 'ExpenseList',
-                    component: () => import('@/views/expense/StaffList.vue')
+                    component: () => import('@/components/expense/StaffList.vue')
                 },
                 {
                     path: '/expense/staff/:staffName',
                     name: 'StaffBalance',
-                    component: () => import('@/views/expense/BalanceList.vue')
+                    component: () => import('@/components/expense/BalanceList.vue')
                 },
                 // Remove the '/expense/add' route
 
@@ -68,12 +69,12 @@ const router = createRouter({
                 {
                     path: '/customer/list',
                     name: 'CustomerList',
-                    component: () => import('@/views/customer/List.vue')
+                    component: () => import('@/components/CustomerList.vue')
                 },
                 {
                     path: '/customer/add',
                     name: 'CustomerAdd',
-                    component: () => import('@/views/customer/Add.vue'),
+                    component: () => import('@/components/CustomerAdd.vue'),
                     beforeEnter: (_, from, next) => {
                         // Only allow access if coming from the customer list page
                         if (from.path === '/customer/list') {
@@ -90,7 +91,7 @@ const router = createRouter({
                 {
                     path: '/customer/edit/:id',
                     name: 'CustomerEdit',
-                    component: () => import('@/views/customer/Edit.vue'),
+                    component: () => import('@/components/CustomerEdit.vue'),
                     meta: { requiresAuth: true }
                 },
 
@@ -98,13 +99,13 @@ const router = createRouter({
                 {
                     path: '/staff/list',
                     name: 'StaffList',
-                    component: () => import('@/views/staff/List.vue'),
+                    component: () => import('@/components/staff/List.vue'),
                     meta: { requiresAuth: true }
                 },
                 {
                     path: '/staff/add',
                     name: 'StaffAdd',
-                    component: () => import('@/views/staff/Add.vue'),
+                    component: () => import('@/components/staff/Add.vue'),
                     meta: { requiresAuth: true },
                     beforeEnter: (_, from, next) => {
                         // Only allow access if coming from the staff list page
@@ -122,7 +123,13 @@ const router = createRouter({
                 {
                     path: '/staff/edit/:id',
                     name: 'StaffEdit',
-                    component: () => import('@/views/staff/Edit.vue'),
+                    component: () => import('@/components/staff/Edit.vue'),
+                    meta: { requiresAuth: true }
+                },
+                {
+                    path: '/staff/salary/:id',
+                    name: 'StaffSalary',
+                    component: () => import('@/components/staff/Salary.vue'),
                     meta: { requiresAuth: true }
                 },
 
@@ -130,12 +137,12 @@ const router = createRouter({
                 {
                     path: '/vehicle/list',
                     name: 'VehicleList',
-                    component: () => import('@/views/vehicle/List.vue')
+                    component: () => import('@/components/VehicleList.vue')
                 },
                 {
                     path: '/vehicle/add',
                     name: 'VehicleAdd',
-                    component: () => import('@/views/vehicle/Add.vue'),
+                    component: () => import('@/components/VehicleAdd.vue'),
                     beforeEnter: (_, from, next) => {
                         // Only allow access if coming from the vehicle list page
                         if (from.path === '/vehicle/list') {
@@ -152,7 +159,23 @@ const router = createRouter({
                 {
                     path: '/vehicle/edit/:id',
                     name: 'VehicleEdit',
-                    component: () => import('@/views/vehicle/Edit.vue')
+                    component: () => import('@/components/VehicleEdit.vue')
+                },
+                // Customer Debt routes
+                {
+                    path: '/customer/debt',
+                    name: 'CustomerDebtList',
+                    component: () => import('@/components/CustomerDebtList.vue')
+                },
+                {
+                    path: '/customer/debt/:id',
+                    name: 'CustomerDebtDetail',
+                    component: () => import('@/components/CustomerDebtDetail.vue')
+                },
+                {
+                    path: '/customer/trips/:id',
+                    name: 'CustomerTripList',
+                    component: () => import('@/components/CustomerTripList.vue')
                 }
             ]
         },
@@ -161,7 +184,7 @@ const router = createRouter({
         {
             path: '/public/trip/add',
             name: 'PublicTripAdd',
-            component: () => import('@/views/public/PublicTripInput.vue'),
+            component: () => import('@/components/public/PublicTripInput.vue'),
             meta: { requiresAuth: false }
         },
 
@@ -169,17 +192,17 @@ const router = createRouter({
         {
             path: '/auth/login',
             name: 'Login',
-            component: () => import('@/views/auth/Login.vue')
+            component: () => import('@/components/auth/Login.vue')
         },
         {
             path: '/auth/access',
             name: 'AccessDenied',
-            component: () => import('@/views/auth/Access.vue')
+            component: () => import('@/components/auth/Access.vue')
         },
         {
             path: '/auth/error',
             name: 'Error',
-            component: () => import('@/views/auth/Error.vue')
+            component: () => import('@/components/auth/Error.vue')
         }
     ]
 });

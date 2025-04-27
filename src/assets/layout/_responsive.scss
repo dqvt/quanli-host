@@ -41,7 +41,7 @@
 
         &.layout-static {
             .layout-main-container {
-                margin-left: 18rem;
+                margin-left: 16rem;
             }
 
             &.layout-static-inactive {
@@ -52,7 +52,7 @@
 
                 .layout-main-container {
                     margin-left: 0;
-                    padding-left: 3rem;
+                    padding-left: 1rem;
                 }
             }
         }
@@ -71,7 +71,7 @@
     .layout-wrapper {
         .layout-main-container {
             margin-left: 0;
-            padding-left: 3rem;
+            padding-left: 1rem;
         }
 
         .layout-sidebar {
