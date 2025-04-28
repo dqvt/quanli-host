@@ -1,22 +1,20 @@
-import { auth } from '@/config/firebase';
-import { 
-    signInWithEmailAndPassword, 
-    signOut, 
-    onAuthStateChanged,
-    createUserWithEmailAndPassword,
-    updateProfile
-} from 'firebase/auth';
+import { supabase } from '@/config/supabase';
 
 /**
  * Sign in with email and password
  * @param {string} email - User email
  * @param {string} password - User password
- * @returns {Promise} - Firebase auth user credential
+ * @returns {Promise} - Supabase auth user credential
  */
 export const login = async (email, password) => {
     try {
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        return userCredential.user;
+        const { data, error } = await supabase.auth.signInWithPassword({
+            email,
+            password
+        });
+        
+        if (error) throw error;
+        return data.user;
     } catch (error) {
         console.error('Login error:', error);
         throw error;
@@ -29,7 +27,8 @@ export const login = async (email, password) => {
  */
 export const logout = async () => {
     try {
-        await signOut(auth);
+        const { error } = await supabase.auth.signOut();
+        if (error) throw error;
     } catch (error) {
         console.error('Logout error:', error);
         throw error;
@@ -41,20 +40,23 @@ export const logout = async () => {
  * @param {string} email - User email
  * @param {string} password - User password
  * @param {string} displayName - User display name
- * @returns {Promise} - Firebase auth user credential
+ * @returns {Promise} - Supabase auth user credential
  */
 export const register = async (email, password, displayName) => {
     try {
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        // Create user with email and password
+        const { data, error } = await supabase.auth.signUp({
+            email,
+            password,
+            options: {
+                data: {
+                    display_name: displayName
+                }
+            }
+        });
         
-        // Update the user profile with display name
-        if (displayName) {
-            await updateProfile(userCredential.user, {
-                displayName: displayName
-            });
-        }
-        
-        return userCredential.user;
+        if (error) throw error;
+        return data.user;
     } catch (error) {
         console.error('Registration error:', error);
         throw error;
@@ -65,8 +67,14 @@ export const register = async (email, password, displayName) => {
  * Get the current authenticated user
  * @returns {Object|null} - Current user or null if not authenticated
  */
-export const getCurrentUser = () => {
-    return auth.currentUser;
+export const getCurrentUser = async () => {
+    try {
+        const { data } = await supabase.auth.getUser();
+        return data.user;
+    } catch (error) {
+        console.error('Get current user error:', error);
+        return null;
+    }
 };
 
 /**
@@ -75,5 +83,9 @@ export const getCurrentUser = () => {
  * @returns {Function} - Unsubscribe function
  */
 export const onAuthStateChange = (callback) => {
-    return onAuthStateChanged(auth, callback);
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+        callback(session?.user || null);
+    });
+    
+    return data.subscription.unsubscribe;
 };

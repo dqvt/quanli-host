@@ -16,7 +16,7 @@ export default defineConfig({
         }
     },
     optimizeDeps: {
-        noDiscovery: true
+        include: ['@supabase/supabase-js', '@supabase/postgrest-js', '@supabase/realtime-js', '@supabase/storage-js', '@supabase/functions-js']
     },
     plugins: [
         vue(),

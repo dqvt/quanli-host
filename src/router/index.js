@@ -52,18 +52,7 @@ const router = createRouter({
                     component: () => import('@/components/TripEdit.vue')
                 },
 
-                // Expense routes
-                {
-                    path: '/expense/list',
-                    name: 'ExpenseList',
-                    component: () => import('@/components/expense/StaffList.vue')
-                },
-                {
-                    path: '/expense/staff/:staffName',
-                    name: 'StaffBalance',
-                    component: () => import('@/components/expense/BalanceList.vue')
-                },
-                // Remove the '/expense/add' route
+                // Expense routes have been removed
 
                 // Customer routes
                 {

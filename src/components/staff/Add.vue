@@ -1,6 +1,5 @@
 <script setup>
-import { db } from '@/config/firebase';
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { supabase } from '@/config/supabase';
 import Button from 'primevue/button';
 import DatePicker from 'primevue/calendar';
 import InputText from 'primevue/inputtext';
@@ -63,16 +62,29 @@ const saveStaff = async () => {
     errorMessage.value = '';
 
     try {
-        const staffCollectionRef = collection(db, 'staff');
+        // Convert camelCase to snake_case for database
         const staffDataToSave = {
-            ...staffData.value,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
+            full_name: staffData.value.fullName,
+            short_name: staffData.value.shortName,
+            dob: staffData.value.dob,
+            vietnam_id: staffData.value.vietnamId,
+            license_number: staffData.value.licenseNumber,
+            phone_number: staffData.value.phoneNumber,
+            emergency_contact: {
+                name: staffData.value.emergencyContact.name,
+                phone_number: staffData.value.emergencyContact.phoneNumber,
+                relationship: staffData.value.emergencyContact.relationship
+            },
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
             status: 'active'
         };
 
-        const docRef = await addDoc(staffCollectionRef, staffDataToSave);
-        console.log('Lưu thông tin nhân viên thành công với ID:', docRef.id);
+        const { data, error } = await supabase.from('staff').insert(staffDataToSave).select().single();
+
+        if (error) throw error;
+
+        console.log('Lưu thông tin nhân viên thành công với ID:', data.id);
 
         // Show success notification
         toast.add({

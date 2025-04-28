@@ -1,6 +1,5 @@
 <script setup>
-import { db } from '@/config/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { supabase } from '@/config/supabase';
 import Button from 'primevue/button';
 import Column from 'primevue/column';
 import DataTable from 'primevue/datatable';
@@ -35,18 +34,10 @@ onMounted(() => {
 async function fetchStaff() {
     loading.value = true;
     try {
-        const staffCollection = collection(db, 'staff');
-        const querySnapshot = await getDocs(staffCollection);
+        const { data, error } = await supabase.from('staff').select('*').order('full_name');
 
-        const staffData = [];
-        querySnapshot.forEach((doc) => {
-            staffData.push({
-                id: doc.id,
-                ...doc.data()
-            });
-        });
-
-        staffList.value = staffData;
+        if (error) throw error;
+        staffList.value = data;
     } catch (error) {
         console.error('Error fetching staff:', error);
         toast.add({
@@ -89,11 +80,11 @@ function navigateToAddStaff() {
             paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport RowsPerPageDropdown"
         >
             <Column field="id" header="ID"></Column>
-            <Column field="fullName" header="Họ và tên" sortable></Column>
-            <Column field="shortName" header="Tên ngắn" sortable></Column>
-            <Column field="phoneNumber" header="Số điện thoại" sortable></Column>
-            <Column field="vietnamId" header="CCCD" sortable></Column>
-            <Column field="licenseNumber" header="Bằng lái" sortable></Column>
+            <Column field="full_name" header="Họ và tên" sortable></Column>
+            <Column field="short_name" header="Tên ngắn" sortable></Column>
+            <Column field="phone_number" header="Số điện thoại" sortable></Column>
+            <Column field="vietnam_id" header="CCCD" sortable></Column>
+            <Column field="license_number" header="Bằng lái" sortable></Column>
             <Column field="status" header="Trạng thái" sortable>
                 <template #body="slotProps">
                     <span

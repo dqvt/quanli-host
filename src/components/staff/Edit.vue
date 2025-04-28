@@ -1,6 +1,5 @@
 <script setup>
-import { db } from '@/config/firebase';
-import { deleteDoc, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { supabase } from '@/config/supabase';
 import Button from 'primevue/button';
 import DatePicker from 'primevue/calendar';
 import Dialog from 'primevue/dialog';
@@ -36,10 +35,27 @@ onMounted(async () => {
 const fetchStaffData = async () => {
     loading.value = true;
     try {
-        const staffDoc = await getDoc(doc(db, 'staff', staffId));
-        if (staffDoc.exists()) {
-            const data = staffDoc.data(); // Convert Firestore Timestamp to Date for DatePicker
-            staffData.value = { ...data, dob: data.dob ? data.dob.toDate() : null, id: staffDoc.id };
+        const { data, error } = await supabase.from('staff').select('*').eq('id', staffId).single();
+
+        if (error) throw error;
+
+        if (data) {
+            // Convert snake_case to camelCase for frontend
+            staffData.value = {
+                id: data.id,
+                fullName: data.full_name,
+                shortName: data.short_name,
+                dob: data.dob ? new Date(data.dob) : null,
+                vietnamId: data.vietnam_id,
+                licenseNumber: data.license_number,
+                phoneNumber: data.phone_number,
+                emergencyContact: {
+                    name: data.emergency_contact?.name || '',
+                    phoneNumber: data.emergency_contact?.phone_number || '',
+                    relationship: data.emergency_contact?.relationship || ''
+                },
+                status: data.status || 'active'
+            };
         } else {
             errorMessage.value = 'Không tìm thấy thông tin nhân viên';
             setTimeout(() => {
@@ -61,11 +77,28 @@ const updateStaff = async () => {
             errorMessage.value = 'Vui lòng nhập họ tên và tên ngắn';
             return;
         }
-        const staffRef = doc(db, 'staff', staffId);
-        const staffDataToUpdate = { ...staffData.value, updatedAt: serverTimestamp() };
-        // Remove the id field before updating
-        delete staffDataToUpdate.id;
-        await updateDoc(staffRef, staffDataToUpdate);
+
+        // Convert camelCase to snake_case for database
+        const staffDataToUpdate = {
+            full_name: staffData.value.fullName,
+            short_name: staffData.value.shortName,
+            dob: staffData.value.dob,
+            vietnam_id: staffData.value.vietnamId,
+            license_number: staffData.value.licenseNumber,
+            phone_number: staffData.value.phoneNumber,
+            emergency_contact: {
+                name: staffData.value.emergencyContact.name,
+                phone_number: staffData.value.emergencyContact.phoneNumber,
+                relationship: staffData.value.emergencyContact.relationship
+            },
+            updated_at: new Date().toISOString(),
+            status: staffData.value.status
+        };
+
+        const { error } = await supabase.from('staff').update(staffDataToUpdate).eq('id', staffId);
+
+        if (error) throw error;
+
         toast.add({ severity: 'success', summary: 'Thành công', detail: 'Đã cập nhật thông tin nhân viên', life: 3000 });
         router.push('/staff/list');
     } catch (error) {
@@ -81,11 +114,12 @@ const confirmDelete = () => {
     deleteDialog.value = true;
 };
 
-// Delete staff from Firestore
+// Delete staff from Supabase
 const deleteStaff = async () => {
     try {
-        const staffRef = doc(db, 'staff', staffId);
-        await deleteDoc(staffRef);
+        const { error } = await supabase.from('staff').delete().eq('id', staffId);
+
+        if (error) throw error;
 
         toast.add({
             severity: 'success',

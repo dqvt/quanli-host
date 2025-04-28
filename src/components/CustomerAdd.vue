@@ -1,6 +1,4 @@
 <script setup>
-import { db } from '@/config/firebase';
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import Button from 'primevue/button';
 import InputText from 'primevue/inputtext';
 import Panel from 'primevue/panel';
@@ -36,16 +34,24 @@ const saveCustomer = async () => {
             return;
         }
 
-        const customersCollectionRef = collection(db, 'customers');
+        // Convert camelCase to snake_case for database
         const customerDataToSave = {
-            ...customerData.value,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
+            representative_name: customerData.value.representativeName,
+            company_name: customerData.value.companyName,
+            contact_number: customerData.value.contactNumber,
+            email: customerData.value.email,
+            address: customerData.value.address,
+            tax_number: customerData.value.taxNumber,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
             status: 'active'
         };
 
-        const docRef = await addDoc(customersCollectionRef, customerDataToSave);
-        console.log('Lưu thông tin khách hàng thành công với ID:', docRef.id);
+        const { data, error } = await supabase.from('customers').insert(customerDataToSave).select().single();
+
+        if (error) throw error;
+
+        console.log('Lưu thông tin khách hàng thành công với ID:', data.id);
         resetForm();
         toast.add({ severity: 'success', summary: 'Thành công', detail: 'Đã lưu thông tin khách hàng', life: 3000 });
 

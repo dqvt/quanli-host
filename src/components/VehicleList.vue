@@ -1,6 +1,5 @@
 <script setup>
-import { db } from '@/config/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { supabase } from '@/config/supabase';
 import Button from 'primevue/button';
 import Column from 'primevue/column';
 import DataTable from 'primevue/datatable';
@@ -25,7 +24,7 @@ const filteredVehicles = computed(() => {
     }
 
     const searchTerm = licensePlateFilter.value.toLowerCase().trim();
-    return vehicles.value.filter((vehicle) => vehicle.licensePlate.toLowerCase().includes(searchTerm));
+    return vehicles.value.filter((vehicle) => vehicle.license_number.toLowerCase().includes(searchTerm));
 });
 
 // Computed property for total vehicle count
@@ -67,18 +66,11 @@ onMounted(() => {
 async function fetchVehicles() {
     loading.value = true;
     try {
-        const vehiclesCollection = collection(db, 'vehicles');
-        const querySnapshot = await getDocs(vehiclesCollection);
+        const { data, error } = await supabase.from('vehicles').select('*').order('license_number');
 
-        const vehiclesData = [];
-        querySnapshot.forEach((doc) => {
-            vehiclesData.push({
-                id: doc.id,
-                ...doc.data()
-            });
-        });
+        if (error) throw error;
 
-        vehicles.value = vehiclesData;
+        vehicles.value = data;
     } catch (error) {
         console.error('Error fetching vehicles:', error);
         toast.add({
@@ -93,7 +85,7 @@ async function fetchVehicles() {
 }
 
 function getStatusSeverity(status) {
-    return status === 'ACTIVE' ? 'success' : 'danger';
+    return status === 'active' ? 'success' : 'danger';
 }
 </script>
 
@@ -131,22 +123,22 @@ function getStatusSeverity(status) {
             currentPageReportTemplate="Hiển thị {first} đến {last} của {totalRecords} xe"
             paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport RowsPerPageDropdown"
         >
-            <Column field="licensePlate" header="Biển số xe" sortable>
+            <Column field="license_number" header="Biển số xe" sortable>
                 <template #body="slotProps">
-                    {{ formatLicensePlate(slotProps.data.licensePlate) }}
+                    {{ formatLicensePlate(slotProps.data.license_number) }}
                 </template>
             </Column>
-            <Column field="manufacturer" header="Hãng sản xuất" sortable></Column>
+            <Column field="brand" header="Hãng sản xuất" sortable></Column>
             <Column field="model" header="Model" sortable></Column>
-            <Column field="vehicleType" header="Loại xe" sortable>
+            <Column field="vehicle_type" header="Loại xe" sortable>
                 <template #body="slotProps">
-                    {{ slotProps.data.vehicleType === 'TRUCK' ? 'Xe tải' : slotProps.data.vehicleType === 'TRAILER' ? 'Rơ móc' : 'Xe đầu kéo' }}
+                    {{ slotProps.data.vehicle_type === 'TRUCK' ? 'Xe tải' : slotProps.data.vehicle_type === 'TRAILER' ? 'Rơ móc' : 'Xe đầu kéo' }}
                 </template>
             </Column>
-            <Column field="yearOfManufacture" header="Năm sản xuất" sortable></Column>
+            <Column field="year" header="Năm sản xuất" sortable></Column>
             <Column field="status" header="Trạng thái" sortable>
                 <template #body="slotProps">
-                    <Tag :severity="getStatusSeverity(slotProps.data.status)" :value="slotProps.data.status === 'ACTIVE' ? 'Đang hoạt động' : 'Ngừng hoạt động'" />
+                    <Tag :severity="getStatusSeverity(slotProps.data.status)" :value="slotProps.data.status === 'active' ? 'Đang hoạt động' : 'Ngừng hoạt động'" />
                 </template>
             </Column>
             <Column header="Thao tác" style="width: 10rem">

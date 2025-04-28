@@ -1,8 +1,7 @@
 <script setup>
-import { db } from '@/config/firebase';
-import { deleteDoc, doc, getDoc, updateDoc } from 'firebase/firestore';
+import { supabase } from '@/config/supabase';
 import Button from 'primevue/button';
-import DatePicker from 'primevue/calendar';
+import Calendar from 'primevue/calendar';
 import Dialog from 'primevue/dialog';
 import Dropdown from 'primevue/dropdown';
 import InputNumber from 'primevue/inputnumber';
@@ -21,18 +20,14 @@ const toast = useToast();
 
 // Initial vehicle data structure
 const vehicleData = ref({
-    licensePlate: '',
-    registrationDate: '',
-    manufacturer: '',
+    license_number: '',
+    brand: '',
     model: '',
-    yearOfManufacture: null,
-    vehicleType: '',
-    chassisNumber: '',
-    engineNumber: '',
-    registrationExpiryDate: '',
-    insuranceExpiryDate: '',
+    year: null,
+    vehicle_type: '',
     capacity: null,
-    status: 'ACTIVE',
+    status: 'active',
+    registration_expiry_date: null,
     notes: ''
 });
 
@@ -53,8 +48,8 @@ const vehicleTypes = [
 
 // Status options
 const statusOptions = [
-    { label: 'Đang hoạt động', value: 'ACTIVE' },
-    { label: 'Ngừng hoạt động', value: 'INACTIVE' }
+    { label: 'Đang hoạt động', value: 'active' },
+    { label: 'Ngừng hoạt động', value: 'inactive' }
 ];
 
 /**
@@ -67,8 +62,8 @@ const validateForm = () => {
     let isValid = true;
 
     // License Plate validation
-    if (!vehicleData.value.licensePlate) {
-        validationErrors.value.licensePlate = 'Vui lòng nhập biển số xe';
+    if (!vehicleData.value.license_number) {
+        validationErrors.value.license_number = 'Vui lòng nhập biển số xe';
         isValid = false;
     }
 
@@ -85,10 +80,11 @@ onMounted(async () => {
 
     loading.value = true;
     try {
-        const vehicleRef = doc(db, 'vehicles', vehicleId);
-        const vehicleDoc = await getDoc(vehicleRef);
+        const { data, error } = await supabase.from('vehicles').select('*').eq('id', vehicleId).single();
 
-        if (!vehicleDoc.exists()) {
+        if (error) throw error;
+
+        if (!data) {
             toast.add({
                 severity: 'error',
                 summary: 'Lỗi',
@@ -99,20 +95,10 @@ onMounted(async () => {
             return;
         }
 
-        const data = vehicleDoc.data();
-        // Convert Firestore Timestamps to Date objects
-        ['registrationDate', 'registrationExpiryDate', 'insuranceExpiryDate'].forEach((field) => {
-            if (data[field]) {
-                // Check if the field is a Firestore Timestamp (has toDate method)
-                if (data[field].toDate && typeof data[field].toDate === 'function') {
-                    data[field] = data[field].toDate();
-                } else if (typeof data[field] === 'string') {
-                    // If it's a string (ISO format), convert to Date
-                    data[field] = new Date(data[field]);
-                }
-                // If it's already a Date object or another format, leave as is
-            }
-        });
+        // Convert date strings to Date objects
+        if (data.registration_expiry_date) {
+            data.registration_expiry_date = new Date(data.registration_expiry_date);
+        }
 
         vehicleData.value = { ...data };
     } catch (error) {
@@ -124,7 +110,7 @@ onMounted(async () => {
 });
 
 /**
- * Updates vehicle data in Firestore
+ * Updates vehicle data in Supabase
  */
 const saveVehicle = async () => {
     errorMessage.value = '';
@@ -137,7 +123,6 @@ const saveVehicle = async () => {
     saving.value = true;
     try {
         const vehicleId = route.params.id;
-        const vehicleRef = doc(db, 'vehicles', vehicleId);
 
         // Helper function to safely convert date values
         const convertToISOString = (dateValue) => {
@@ -158,13 +143,13 @@ const saveVehicle = async () => {
 
         const vehicleDataToSave = {
             ...vehicleData.value,
-            registrationDate: convertToISOString(vehicleData.value.registrationDate),
-            registrationExpiryDate: convertToISOString(vehicleData.value.registrationExpiryDate),
-            insuranceExpiryDate: convertToISOString(vehicleData.value.insuranceExpiryDate),
-            updatedAt: new Date()
+            registration_expiry_date: convertToISOString(vehicleData.value.registration_expiry_date),
+            updated_at: new Date().toISOString()
         };
 
-        await updateDoc(vehicleRef, vehicleDataToSave);
+        const { error } = await supabase.from('vehicles').update(vehicleDataToSave).eq('id', vehicleId);
+
+        if (error) throw error;
 
         // Show success toast notification
         toast.add({
@@ -189,12 +174,14 @@ function confirmDelete() {
     deleteDialog.value = true;
 }
 
-// Delete vehicle from Firestore
+// Delete vehicle from Supabase
 async function deleteVehicle() {
     try {
         const vehicleId = route.params.id;
-        const vehicleRef = doc(db, 'vehicles', vehicleId);
-        await deleteDoc(vehicleRef);
+
+        const { error } = await supabase.from('vehicles').delete().eq('id', vehicleId);
+
+        if (error) throw error;
 
         toast.add({
             severity: 'success',
@@ -242,19 +229,19 @@ async function deleteVehicle() {
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <!-- License Plate -->
                     <div class="flex flex-col gap-2">
-                        <label for="licensePlate">Biển số xe <span class="text-red-500">*</span></label>
-                        <InputText id="licensePlate" v-model="vehicleData.licensePlate" placeholder="Nhập biển số xe" :class="{ 'p-invalid': submitted && validationErrors.licensePlate }" />
-                        <small v-if="submitted && validationErrors.licensePlate" class="p-error">
-                            {{ validationErrors.licensePlate }}
+                        <label for="license_number">Biển số xe <span class="text-red-500">*</span></label>
+                        <InputText id="license_number" v-model="vehicleData.license_number" placeholder="Nhập biển số xe" :class="{ 'p-invalid': submitted && validationErrors.license_number }" />
+                        <small v-if="submitted && validationErrors.license_number" class="p-error">
+                            {{ validationErrors.license_number }}
                         </small>
                     </div>
 
                     <!-- Vehicle Type -->
                     <div class="flex flex-col gap-2">
-                        <label for="vehicleType">Loại xe <span class="text-red-500">*</span></label>
-                        <Dropdown id="vehicleType" v-model="vehicleData.vehicleType" :options="vehicleTypes" optionLabel="label" optionValue="value" placeholder="Chọn loại xe" :class="{ 'p-invalid': submitted && validationErrors.vehicleType }" />
-                        <small v-if="submitted && validationErrors.vehicleType" class="p-error">
-                            {{ validationErrors.vehicleType }}
+                        <label for="vehicle_type">Loại xe <span class="text-red-500">*</span></label>
+                        <Dropdown id="vehicle_type" v-model="vehicleData.vehicle_type" :options="vehicleTypes" optionLabel="label" optionValue="value" placeholder="Chọn loại xe" :class="{ 'p-invalid': submitted && validationErrors.vehicle_type }" />
+                        <small v-if="submitted && validationErrors.vehicle_type" class="p-error">
+                            {{ validationErrors.vehicle_type }}
                         </small>
                     </div>
                 </div>
@@ -262,10 +249,10 @@ async function deleteVehicle() {
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
                     <!-- Manufacturer -->
                     <div class="flex flex-col gap-2">
-                        <label for="manufacturer">Hãng sản xuất <span class="text-red-500">*</span></label>
-                        <InputText id="manufacturer" v-model="vehicleData.manufacturer" placeholder="Nhập hãng sản xuất" :class="{ 'p-invalid': submitted && validationErrors.manufacturer }" />
-                        <small v-if="submitted && validationErrors.manufacturer" class="p-error">
-                            {{ validationErrors.manufacturer }}
+                        <label for="brand">Hãng sản xuất <span class="text-red-500">*</span></label>
+                        <InputText id="brand" v-model="vehicleData.brand" placeholder="Nhập hãng sản xuất" :class="{ 'p-invalid': submitted && validationErrors.brand }" />
+                        <small v-if="submitted && validationErrors.brand" class="p-error">
+                            {{ validationErrors.brand }}
                         </small>
                     </div>
 
@@ -277,8 +264,8 @@ async function deleteVehicle() {
 
                     <!-- Year of Manufacture -->
                     <div class="flex flex-col gap-2">
-                        <label for="yearOfManufacture">Năm sản xuất</label>
-                        <InputNumber id="yearOfManufacture" v-model="vehicleData.yearOfManufacture" placeholder="Nhập năm sản xuất" :min="1900" :max="new Date().getFullYear()" />
+                        <label for="year">Năm sản xuất</label>
+                        <InputNumber id="year" v-model="vehicleData.year" placeholder="Nhập năm sản xuất" :min="1900" :max="new Date().getFullYear()" />
                     </div>
                 </div>
 
@@ -306,48 +293,10 @@ async function deleteVehicle() {
                 </template>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <!-- Registration Date -->
-                    <div class="flex flex-col gap-2">
-                        <label for="registrationDate">Ngày đăng ký <span class="text-red-500">*</span></label>
-                        <DatePicker id="registrationDate" v-model="vehicleData.registrationDate" dateFormat="dd/mm/yy" placeholder="Chọn ngày đăng ký" :showIcon="true" :class="{ 'p-invalid': submitted && validationErrors.registrationDate }" />
-                        <small v-if="submitted && validationErrors.registrationDate" class="p-error">
-                            {{ validationErrors.registrationDate }}
-                        </small>
-                    </div>
-
                     <!-- Registration Expiry Date -->
                     <div class="flex flex-col gap-2">
-                        <label for="registrationExpiryDate">Ngày hết hạn đăng ký</label>
-                        <DatePicker id="registrationExpiryDate" v-model="vehicleData.registrationExpiryDate" dateFormat="dd/mm/yy" placeholder="Chọn ngày hết hạn" :showIcon="true" />
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                    <!-- Chassis Number -->
-                    <div class="flex flex-col gap-2">
-                        <label for="chassisNumber">Số khung</label>
-                        <InputText id="chassisNumber" v-model="vehicleData.chassisNumber" placeholder="Nhập số khung" />
-                    </div>
-
-                    <!-- Engine Number -->
-                    <div class="flex flex-col gap-2">
-                        <label for="engineNumber">Số máy</label>
-                        <InputText id="engineNumber" v-model="vehicleData.engineNumber" placeholder="Nhập số máy" />
-                    </div>
-                </div>
-            </Panel>
-
-            <!-- Insurance Information -->
-            <Panel>
-                <template #header>
-                    <span class="font-bold">Thông tin bảo hiểm</span>
-                </template>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <!-- Insurance Expiry Date -->
-                    <div class="flex flex-col gap-2">
-                        <label for="insuranceExpiryDate">Ngày hết hạn bảo hiểm</label>
-                        <DatePicker id="insuranceExpiryDate" v-model="vehicleData.insuranceExpiryDate" dateFormat="dd/mm/yy" placeholder="Chọn ngày hết hạn" :showIcon="true" />
+                        <label for="registration_expiry_date">Ngày hết hạn đăng ký</label>
+                        <Calendar id="registration_expiry_date" v-model="vehicleData.registration_expiry_date" dateFormat="dd/mm/yy" placeholder="Chọn ngày hết hạn" :showIcon="true" />
                     </div>
                 </div>
             </Panel>
@@ -383,7 +332,7 @@ async function deleteVehicle() {
                 <i class="pi pi-exclamation-triangle text-yellow-500" style="font-size: 2rem" />
                 <span>
                     Bạn có chắc chắn muốn xóa xe biển số
-                    <b>{{ vehicleData.licensePlate }}</b
+                    <b>{{ vehicleData.license_number }}</b
                     >?
                 </span>
             </div>

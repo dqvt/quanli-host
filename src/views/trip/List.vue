@@ -1,7 +1,6 @@
 <script setup>
-import { db } from '@/config/firebase';
+import { supabase } from '@/config/supabase';
 import { calculateTotalExpenses, formatTimestamp, getStatusSeverity, useTripList } from '@/services/trip';
-import { doc, updateDoc } from 'firebase/firestore';
 import Button from 'primevue/button';
 import DatePicker from 'primevue/calendar';
 import Dialog from 'primevue/dialog';
@@ -62,22 +61,25 @@ const saveTrip = async (trip) => {
     savingState.value[tripId] = true;
 
     try {
-        const tripRef = doc(db, 'trips', tripId);
-
         // Prepare data for update
         const updateData = {
-            startingPoint: trip.startingPoint,
-            endingPoint: trip.endingPoint,
+            starting_point: trip.startingPoint,
+            ending_point: trip.endingPoint,
             distance: trip.distance,
-            'expenses.policeFee': trip.expenses.policeFee,
-            'expenses.tollFee': trip.expenses.tollFee,
-            'expenses.foodFee': trip.expenses.foodFee,
-            'expenses.gasMoney': trip.expenses.gasMoney,
-            'expenses.mechanicFee': trip.expenses.mechanicFee
+            expenses: {
+                police_fee: trip.expenses.policeFee,
+                toll_fee: trip.expenses.tollFee,
+                food_fee: trip.expenses.foodFee,
+                gas_money: trip.expenses.gasMoney,
+                mechanic_fee: trip.expenses.mechanicFee
+            },
+            updated_at: new Date().toISOString()
         };
 
-        // Update in Firestore
-        await updateDoc(tripRef, updateData);
+        // Update in Supabase
+        const { error } = await supabase.from('trips').update(updateData).eq('id', tripId);
+
+        if (error) throw error;
 
         // Show success message
         toast.add({
@@ -89,6 +91,9 @@ const saveTrip = async (trip) => {
 
         // Exit edit mode after successful save
         editModeState.value[tripId] = false;
+
+        // Refresh the trip list
+        await fetchData.trips();
     } catch (error) {
         console.error('Error updating trip:', error);
         toast.add({

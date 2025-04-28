@@ -1,6 +1,4 @@
 <script setup>
-import { db } from '@/config/firebase';
-import { deleteDoc, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import Button from 'primevue/button';
 import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
@@ -31,13 +29,27 @@ onMounted(async () => {
 const fetchCustomerData = async () => {
     loading.value = true;
     try {
-        const customerDoc = await getDoc(doc(db, 'customers', customerId));
-        if (customerDoc.exists()) {
-            customerData.value = { ...customerDoc.data(), id: customerDoc.id };
+        const { data, error } = await supabase.from('customers').select('*').eq('id', customerId).single();
+
+        if (error) throw error;
+
+        if (data) {
+            // Convert snake_case to camelCase for frontend
+            customerData.value = {
+                id: data.id,
+                representativeName: data.representative_name,
+                companyName: data.company_name,
+                contactNumber: data.contact_number,
+                email: data.email,
+                address: data.address,
+                taxNumber: data.tax_number,
+                googleDriveLink: data.google_drive_link,
+                updatedAt: data.updated_at
+            };
         } else {
             errorMessage.value = 'Không tìm thấy thông tin khách hàng';
             setTimeout(() => {
-                router.push('/customer-list');
+                router.push('/customer/list');
             }, 2000);
         }
     } catch (error) {
@@ -57,18 +69,23 @@ const updateCustomer = async () => {
             loading.value = false;
             return;
         }
-        const customerRef = doc(db, 'customers', customerId);
+
+        // Convert camelCase to snake_case for database
         const customerDataToUpdate = {
-            representativeName: customerData.value.representativeName,
-            companyName: customerData.value.companyName,
-            contactNumber: customerData.value.contactNumber,
+            representative_name: customerData.value.representativeName,
+            company_name: customerData.value.companyName,
+            contact_number: customerData.value.contactNumber,
             email: customerData.value.email,
             address: customerData.value.address,
-            taxNumber: customerData.value.taxNumber,
-            googleDriveLink: customerData.value.googleDriveLink,
-            updatedAt: serverTimestamp()
+            tax_number: customerData.value.taxNumber,
+            google_drive_link: customerData.value.googleDriveLink,
+            updated_at: new Date().toISOString()
         };
-        await updateDoc(customerRef, customerDataToUpdate);
+
+        const { error } = await supabase.from('customers').update(customerDataToUpdate).eq('id', customerId);
+
+        if (error) throw error;
+
         toast.add({ severity: 'success', summary: 'Thành công', detail: 'Đã cập nhật thông tin khách hàng', life: 3000 });
         router.push('/customer/list');
     } catch (error) {
@@ -84,11 +101,12 @@ const confirmDelete = () => {
     deleteDialog.value = true;
 };
 
-// Delete customer from Firestore
+// Delete customer from Supabase
 const deleteCustomer = async () => {
     try {
-        const customerRef = doc(db, 'customers', customerId);
-        await deleteDoc(customerRef);
+        const { error } = await supabase.from('customers').delete().eq('id', customerId);
+
+        if (error) throw error;
 
         toast.add({
             severity: 'success',

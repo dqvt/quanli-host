@@ -1,262 +1,225 @@
-import { db } from '@/config/firebase';
-import { collection, getDocs, query, where } from 'firebase/firestore';
-
-// Constants for salary calculation
-const DRIVER_SALARY_PERCENTAGE = 0.15; // 15% of trip price for driver
-const ASSISTANT_SALARY_PERCENTAGE = 0.05; // 5% of trip price for assistant
+import { supabase } from '@/config/supabase';
 
 /**
- * Get all trips for a specific staff member (as driver or assistant)
+ * Format currency value
+ * @param {number} value - Currency value
+ * @returns {string} - Formatted currency
+ */
+export const formatCurrency = (value) => {
+    return new Intl.NumberFormat('vi-VN', {
+        style: 'currency',
+        currency: 'VND',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0
+    }).format(value);
+};
+
+/**
+ * Get trips for a staff member
  * @param {string} staffId - Staff ID
  * @returns {Promise<Array>} - Array of trips
  */
 export const getStaffTrips = async (staffId) => {
     try {
-        // Get trips where staff is driver
-        const driverTripsQuery = query(collection(db, 'trips'), where('driverId', '==', staffId));
+        // Get trips where staff is driver or assistant
+        const { data: driverTrips, error: driverError } = await supabase
+            .from('trips')
+            .select('*, customers!trips_customer_id_fkey(*), vehicles!fk_vehicle(*), driver:driver_id(*), assistant:assistant_id(*)')
+            .eq('driver_id', staffId)
+            .eq('status', 'PRICED');
 
-        const driverTripsSnapshot = await getDocs(driverTripsQuery);
+        if (driverError) throw driverError;
 
-        const driverTrips = driverTripsSnapshot.docs.map((doc) => ({
-            id: doc.id,
-            ...doc.data(),
-            role: 'driver'
-        }));
+        const { data: assistantTrips, error: assistantError } = await supabase
+            .from('trips')
+            .select('*, customers!trips_customer_id_fkey(*), vehicles!fk_vehicle(*), driver:driver_id(*), assistant:assistant_id(*)')
+            .eq('assistant_id', staffId)
+            .eq('status', 'PRICED');
 
-        // Get trips where staff is assistant
-        const assistantTripsQuery = query(collection(db, 'trips'), where('assistantDriverId', '==', staffId));
+        if (assistantError) throw assistantError;
 
-        const assistantTripsSnapshot = await getDocs(assistantTripsQuery);
+        // Combine and mark role
+        const allTrips = [...driverTrips.map((trip) => ({ ...trip, role: 'driver', salary: calculateDriverSalary(trip) })), ...assistantTrips.map((trip) => ({ ...trip, role: 'assistant', salary: calculateAssistantSalary(trip) }))];
 
-        const assistantTrips = assistantTripsSnapshot.docs.map((doc) => ({
-            id: doc.id,
-            ...doc.data(),
-            role: 'assistant'
-        }));
-
-        // Combine and sort by date (newest first)
-        const allTrips = [...driverTrips, ...assistantTrips].sort((a, b) => {
-            const dateA = a.tripDate ? new Date(a.tripDate) : new Date(0);
-            const dateB = b.tripDate ? new Date(b.tripDate) : new Date(0);
+        // Sort by date (newest first)
+        return allTrips.sort((a, b) => {
+            const dateA = a.trip_date ? new Date(a.trip_date) : new Date(0);
+            const dateB = b.trip_date ? new Date(b.trip_date) : new Date(0);
             return dateB - dateA;
         });
-
-        return allTrips;
     } catch (error) {
-        console.error('Error getting staff trips:', error);
+        console.error(`Error getting trips for staff ${staffId}:`, error);
         throw error;
     }
 };
 
 /**
- * Calculate salary for a trip based on staff role
- * @param {Object} trip - Trip data
- * @param {string} role - Staff role ('driver' or 'assistant')
- * @returns {number} - Calculated salary
+ * Calculate driver salary for a trip
+ * @param {Object} trip - Trip object
+ * @returns {number} - Salary amount
  */
-export const calculateTripSalary = (trip, role) => {
-    if (!trip.price || trip.price <= 0 || trip.status !== 'PRICED') {
-        return 0;
-    }
-
-    const percentage = role === 'driver' ? DRIVER_SALARY_PERCENTAGE : ASSISTANT_SALARY_PERCENTAGE;
-    return Math.round(trip.price * percentage);
+export const calculateDriverSalary = (trip) => {
+    // Implement your salary calculation logic here
+    // For example, 10% of trip price
+    return trip.price * 0.1;
 };
 
 /**
- * Group trips by month and year
+ * Calculate assistant salary for a trip
+ * @param {Object} trip - Trip object
+ * @returns {number} - Salary amount
+ */
+export const calculateAssistantSalary = (trip) => {
+    // Implement your salary calculation logic here
+    // For example, 5% of trip price
+    return trip.price * 0.05;
+};
+
+/**
+ * Group trips by month
  * @param {Array} trips - Array of trips
  * @param {Array} adjustments - Array of salary adjustments
- * @returns {Object} - Trips grouped by month and year
+ * @returns {Array} - Array of months with trips
  */
-export const groupTripsByMonth = (trips, adjustments = []) => {
-    const groupedTrips = {};
+export const groupTripsByMonth = (trips, adjustments) => {
+    if (!trips || !trips.length) return [];
 
-    // First, process all trips
+    // Create a map of months
+    const monthsMap = {};
+
+    // Process trips
     trips.forEach((trip) => {
-        if (!trip.tripDate) return;
+        if (!trip.trip_date) return;
 
-        const tripDate = new Date(trip.tripDate);
-        const year = tripDate.getFullYear();
-        const month = tripDate.getMonth() + 1; // JavaScript months are 0-indexed
+        const date = new Date(trip.trip_date);
+        const year = date.getFullYear();
+        const month = date.getMonth() + 1;
+        const key = `${year}-${month}`;
 
-        const key = `${year}-${month.toString().padStart(2, '0')}`;
-
-        if (!groupedTrips[key]) {
-            groupedTrips[key] = {
+        if (!monthsMap[key]) {
+            monthsMap[key] = {
                 year,
                 month,
                 trips: [],
                 totalSalary: 0,
                 adjustment: 0,
-                adjustmentReason: '',
-                finalSalary: 0,
-                displayName: `${month.toString().padStart(2, '0')}/${year}`
+                adjustmentReason: ''
             };
         }
 
-        const salary = calculateTripSalary(trip, trip.role);
-        trip.salary = salary;
-
-        groupedTrips[key].trips.push(trip);
-        groupedTrips[key].totalSalary += salary;
+        monthsMap[key].trips.push(trip);
+        monthsMap[key].totalSalary += trip.salary || 0;
     });
 
-    // Then, apply any adjustments
-    if (adjustments && adjustments.length > 0) {
-        adjustments.forEach((adjustment) => {
-            const { year, month, adjustmentAmount, reason } = adjustment;
-            const key = `${year}-${month.toString().padStart(2, '0')}`;
+    // Process adjustments
+    if (adjustments && adjustments.length) {
+        adjustments.forEach((adj) => {
+            const key = `${adj.year}-${adj.month}`;
 
-            if (groupedTrips[key]) {
-                groupedTrips[key].adjustment = adjustmentAmount;
-                groupedTrips[key].adjustmentReason = reason;
-            } else {
-                // Create an entry even if there are no trips for this month
-                groupedTrips[key] = {
-                    year,
-                    month,
-                    trips: [],
-                    totalSalary: 0,
-                    adjustment: adjustmentAmount,
-                    adjustmentReason: reason,
-                    finalSalary: adjustmentAmount,
-                    displayName: `${month.toString().padStart(2, '0')}/${year}`
-                };
+            if (monthsMap[key]) {
+                monthsMap[key].adjustment = adj.amount;
+                monthsMap[key].adjustmentReason = adj.reason;
             }
         });
     }
 
-    // Calculate final salary for each month (base salary + adjustment)
-    Object.values(groupedTrips).forEach((monthData) => {
-        monthData.finalSalary = monthData.totalSalary + (monthData.adjustment || 0);
-    });
-
-    // Convert to array and sort by date (newest first)
-    return Object.values(groupedTrips).sort((a, b) => {
+    // Convert map to array and sort by date (newest first)
+    return Object.values(monthsMap).sort((a, b) => {
         if (a.year !== b.year) return b.year - a.year;
         return b.month - a.month;
     });
 };
 
 /**
- * Calculate total salary for all trips and adjustments
+ * Calculate total salary
  * @param {Array} trips - Array of trips
  * @param {Array} adjustments - Array of salary adjustments
  * @returns {number} - Total salary
  */
-export const calculateTotalSalary = (trips, adjustments = []) => {
+export const calculateTotalSalary = (trips, adjustments) => {
     // Calculate base salary from trips
-    const baseSalary = trips.reduce((total, trip) => {
-        return total + calculateTripSalary(trip, trip.role);
-    }, 0);
+    const baseSalary = trips.reduce((sum, trip) => sum + (trip.salary || 0), 0);
 
     // Add adjustments
-    const totalAdjustments = adjustments.reduce((total, adjustment) => {
-        return total + (adjustment.adjustmentAmount || 0);
-    }, 0);
+    const totalAdjustment = adjustments.reduce((sum, adj) => sum + adj.amount, 0);
 
-    return baseSalary + totalAdjustments;
+    return baseSalary + totalAdjustment;
 };
 
 /**
- * Format currency amount to Vietnamese format
- * @param {number} amount - Amount to format
- * @returns {string} - Formatted amount
- */
-export const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('vi-VN', {
-        style: 'currency',
-        currency: 'VND'
-    }).format(amount);
-};
-
-/**
- * Save a salary adjustment for a staff member for a specific month
+ * Get salary adjustments for a staff member
  * @param {string} staffId - Staff ID
- * @param {string} staffName - Staff name
- * @param {number} year - Year
- * @param {number} month - Month (1-12)
- * @param {number} adjustmentAmount - Adjustment amount (can be positive or negative)
- * @param {string} reason - Reason for adjustment
- * @returns {Promise<void>}
- */
-export const saveSalaryAdjustment = async (staffId, staffName, year, month, adjustmentAmount, reason) => {
-    try {
-        // Create a document ID using staffId, year, and month
-        const adjustmentId = `${staffId}_${year}_${month}`;
-
-        // Check if an adjustment already exists for this month
-        const adjustmentRef = doc(db, 'salaryAdjustments', adjustmentId);
-        const adjustmentDoc = await getDoc(adjustmentRef);
-
-        if (adjustmentDoc.exists()) {
-            // Update existing adjustment
-            await updateDoc(adjustmentRef, {
-                adjustmentAmount,
-                reason,
-                updatedAt: serverTimestamp()
-            });
-        } else {
-            // Create new adjustment
-            await setDoc(adjustmentRef, {
-                staffId,
-                staffName,
-                year,
-                month,
-                adjustmentAmount,
-                reason,
-                createdAt: serverTimestamp(),
-                updatedAt: serverTimestamp()
-            });
-        }
-    } catch (error) {
-        console.error('Error saving salary adjustment:', error);
-        throw error;
-    }
-};
-
-/**
- * Get salary adjustment for a staff member for a specific month
- * @param {string} staffId - Staff ID
- * @param {number} year - Year
- * @param {number} month - Month (1-12)
- * @returns {Promise<Object|null>} - Adjustment data or null if not found
- */
-export const getSalaryAdjustment = async (staffId, year, month) => {
-    try {
-        const adjustmentId = `${staffId}_${year}_${month}`;
-        const adjustmentRef = doc(db, 'salaryAdjustments', adjustmentId);
-        const adjustmentDoc = await getDoc(adjustmentRef);
-
-        if (adjustmentDoc.exists()) {
-            return { id: adjustmentDoc.id, ...adjustmentDoc.data() };
-        }
-
-        return null;
-    } catch (error) {
-        console.error('Error getting salary adjustment:', error);
-        throw error;
-    }
-};
-
-/**
- * Get all salary adjustments for a staff member
- * @param {string} staffId - Staff ID
- * @returns {Promise<Array>} - Array of adjustments
+ * @returns {Promise<Array>} - Array of salary adjustments
  */
 export const getStaffSalaryAdjustments = async (staffId) => {
     try {
-        const adjustmentsQuery = query(collection(db, 'salaryAdjustments'), where('staffId', '==', staffId));
+        const { data, error } = await supabase.from('salary_adjustments').select('*').eq('staff_id', staffId).order('year', { ascending: false }).order('month', { ascending: false });
 
-        const adjustmentsSnapshot = await getDocs(adjustmentsQuery);
-
-        return adjustmentsSnapshot.docs.map((doc) => ({
-            id: doc.id,
-            ...doc.data()
-        }));
+        if (error) throw error;
+        return data;
     } catch (error) {
-        console.error('Error getting staff salary adjustments:', error);
+        console.error(`Error getting salary adjustments for staff ${staffId}:`, error);
+        throw error;
+    }
+};
+
+/**
+ * Save salary adjustment
+ * @param {string} staffId - Staff ID
+ * @param {string} staffName - Staff name
+ * @param {number} year - Adjustment year
+ * @param {number} month - Adjustment month
+ * @param {number} amount - Adjustment amount
+ * @param {string} reason - Adjustment reason
+ * @returns {Promise<Object>} - Created/updated adjustment
+ */
+export const saveSalaryAdjustment = async (staffId, staffName, year, month, amount, reason) => {
+    try {
+        // Check if adjustment for this month already exists
+        const { data: existingAdjustment, error: checkError } = await supabase.from('salary_adjustments').select('*').eq('staff_id', staffId).eq('year', year).eq('month', month).single();
+
+        if (checkError && checkError.code !== 'PGRST116') {
+            // PGRST116 is "No rows returned" error, which is expected if adjustment doesn't exist
+            throw checkError;
+        }
+
+        if (existingAdjustment) {
+            // Update existing adjustment
+            const { data, error } = await supabase
+                .from('salary_adjustments')
+                .update({
+                    amount,
+                    reason,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', existingAdjustment.id)
+                .select()
+                .single();
+
+            if (error) throw error;
+            return data;
+        } else {
+            // Create new adjustment
+            const { data, error } = await supabase
+                .from('salary_adjustments')
+                .insert({
+                    staff_id: staffId,
+                    staff_name: staffName,
+                    year,
+                    month,
+                    amount,
+                    reason,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                })
+                .select()
+                .single();
+
+            if (error) throw error;
+            return data;
+        }
+    } catch (error) {
+        console.error(`Error saving salary adjustment for staff ${staffId}:`, error);
         throw error;
     }
 };

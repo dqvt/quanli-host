@@ -37,12 +37,34 @@ const props = defineProps({
 });
 
 // Compute whether expenses should be disabled
-const isExpensesDisabled = computed(() => props.initialData.status === 'WAITING_FOR_PRICE' || props.initialData.status === 'PRICED');
+const isExpensesDisabled = computed(() => {
+    // Add null check to prevent errors when initialData or status is undefined
+    return props.initialData && (props.initialData.status === 'WAITING_FOR_PRICE' || props.initialData.status === 'PRICED');
+});
 
 const emit = defineEmits(['submit', 'update:initialData']);
 
-// Create a local copy of the trip data
-const tripData = ref({ ...props.initialData });
+// Create a local copy of the trip data with default values if initialData is undefined
+const tripData = ref({
+    customerId: null,
+    vehicleId: null,
+    driverId: null,
+    assistantId: null,
+    startingPoint: '',
+    endingPoint: '',
+    distance: 0,
+    tripDate: new Date(),
+    status: 'PENDING',
+    price: 0,
+    expenses: {
+        policeFee: 0,
+        tollFee: 0,
+        foodFee: 0,
+        gasMoney: 0,
+        mechanicFee: 0
+    },
+    ...props.initialData
+});
 
 // Watch for changes in tripData and emit them to parent
 watch(
@@ -149,7 +171,7 @@ const handleSubmit = () => {
                     </small>
                 </div>
 
-                <div class="field" v-if="tripData.status === 'WAITING_FOR_PRICE' || tripData.status === 'PRICED'">
+                <div class="field" v-if="tripData && (tripData.status === 'WAITING_FOR_PRICE' || tripData.status === 'PRICED')">
                     <label for="price">Giá chuyến đi</label>
                     <InputNumber id="price" v-model="tripData.price" mode="currency" currency="VND" placeholder="Nhập giá chuyến đi" />
                 </div>

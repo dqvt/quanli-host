@@ -1,4 +1,4 @@
-import { login as firebaseLogin, logout as firebaseLogout, getCurrentUser, onAuthStateChange } from '@/services/auth';
+import { getCurrentUser, onAuthStateChange, login as supabaseLogin, logout as supabaseLogout } from '@/services/supabaseAuth';
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 
@@ -11,8 +11,8 @@ export const useAuthStore = defineStore('auth', () => {
     // Getters
     const isAuthenticated = computed(() => !!user.value);
     const userEmail = computed(() => user.value?.email || '');
-    const displayName = computed(() => user.value?.displayName || '');
-    const userId = computed(() => user.value?.uid || '');
+    const displayName = computed(() => user.value?.user_metadata?.display_name || '');
+    const userId = computed(() => user.value?.id || '');
 
     // Actions
     function setUser(newUser) {
@@ -21,7 +21,7 @@ export const useAuthStore = defineStore('auth', () => {
 
     async function login(email, password) {
         try {
-            const userCredential = await firebaseLogin(email, password);
+            const userCredential = await supabaseLogin(email, password);
             setUser(userCredential);
             return userCredential;
         } catch (error) {
@@ -32,7 +32,7 @@ export const useAuthStore = defineStore('auth', () => {
 
     async function logout() {
         try {
-            await firebaseLogout();
+            await supabaseLogout();
             setUser(null);
         } catch (error) {
             console.error('Logout error in store:', error);
@@ -40,13 +40,13 @@ export const useAuthStore = defineStore('auth', () => {
         }
     }
 
-    function init() {
+    async function init() {
         if (initialized.value) return;
 
         loading.value = true;
 
         // Set initial user if already logged in
-        const currentUser = getCurrentUser();
+        const currentUser = await getCurrentUser();
         if (currentUser) {
             setUser(currentUser);
         }

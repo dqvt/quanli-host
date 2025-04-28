@@ -2,6 +2,9 @@
 import FloatingConfigurator from '@/components/FloatingConfigurator.vue';
 import { useAuthStore } from '@/stores/auth';
 import Button from 'primevue/button';
+import Checkbox from 'primevue/checkbox';
+import InputText from 'primevue/inputtext';
+import Password from 'primevue/password';
 import ProgressSpinner from 'primevue/progressspinner';
 import { useToast } from 'primevue/usetoast';
 import { ref } from 'vue';
@@ -72,22 +75,19 @@ const handleLogin = async () => {
     } catch (error) {
         console.error('Login error:', error);
 
-        // Handle different Firebase auth errors
-        switch (error.code) {
-            case 'auth/invalid-email':
+        // Handle Supabase auth errors
+        if (error.message) {
+            if (error.message.includes('Invalid login credentials')) {
+                errorMessage.value = 'Email hoặc mật khẩu không chính xác';
+            } else if (error.message.includes('Email not confirmed')) {
+                errorMessage.value = 'Email chưa được xác nhận';
+            } else if (error.message.includes('Invalid email')) {
                 errorMessage.value = 'Email không hợp lệ';
-                break;
-            case 'auth/user-disabled':
-                errorMessage.value = 'Tài khoản đã bị vô hiệu hóa';
-                break;
-            case 'auth/user-not-found':
-                errorMessage.value = 'Không tìm thấy tài khoản với email này';
-                break;
-            case 'auth/wrong-password':
-                errorMessage.value = 'Mật khẩu không chính xác';
-                break;
-            default:
-                errorMessage.value = 'Đăng nhập thất bại. Vui lòng thử lại.';
+            } else {
+                errorMessage.value = 'Đăng nhập thất bại: ' + error.message;
+            }
+        } else {
+            errorMessage.value = 'Đăng nhập thất bại. Vui lòng thử lại.';
         }
     } finally {
         loading.value = false;

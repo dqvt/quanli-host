@@ -42,6 +42,7 @@ app.use(PrimeVue, {
         }
     }
 });
+// Make sure ToastService is registered before any components that use it
 app.use(ToastService);
 app.use(ConfirmationService);
 

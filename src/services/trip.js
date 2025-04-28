@@ -1,611 +1,905 @@
-import { db } from '@/config/firebase';
-import * as balanceService from '@/services/balance';
-import * as expenseService from '@/services/expense';
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
-import { useToast } from 'primevue/usetoast';
-import { ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { supabase } from '@/config/supabase';
+import { onMounted, ref, watch } from 'vue';
+import { calculateAssistantWage, calculateDriverWage, saveWagesForTrip, updateCustomerDebtForTrip } from './wage';
 
-// Constants
-export const STATUS_TRANSLATIONS = {
-    PENDING: { label: 'Chờ duyệt', severity: 'secondary' },
-    WAITING_FOR_PRICE: { label: 'Chờ báo giá', severity: 'info' },
-    PRICED: { label: 'Đã báo giá', severity: 'success' }
-};
+// Common query selectors for trips with related data
+const TRIP_SELECT_WITH_RELATIONS = `
+    *,
+    customers(id, company_name, representative_name),
+    vehicles(id, license_number),
+    driver:staff!fk_driver(id, full_name),
+    assistant:staff!fk_assistant(id, full_name)
+`;
 
-export const DEFAULT_TRIP_DATA = {
-    tripDate: '',
-    startingPoint: '',
-    endingPoint: '',
-    distance: null,
-    driverName: '',
-    customerName: '',
-    assistantDriverName: '',
-    vehicleLicenseNumber: '',
-    expenses: {
-        policeFee: 0,
-        tollFee: 0,
-        foodFee: 0,
-        gasMoney: 0,
-        mechanicFee: 0
-    },
-    price: 0,
-    status: 'PENDING'
-};
-
-// Utility functions
-export const getStatusSeverity = (status) => STATUS_TRANSLATIONS[status]?.severity || 'info';
-
+/**
+ * Format timestamp to a readable date
+ * @param {string} timestamp - ISO timestamp
+ * @returns {string} - Formatted date
+ */
 export const formatTimestamp = (timestamp) => {
     if (!timestamp) return '';
-    const date = timestamp.seconds ? new Date(timestamp.seconds * 1000) : new Date(timestamp);
-    return date.toLocaleString('vi-VN');
-};
 
-export const calculateTotalExpenses = (expenses) => {
-    if (!expenses) return '0 ₫';
-    const total = Object.values(expenses).reduce((sum, value) => sum + (value || 0), 0);
-    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(total);
-};
-
-// Data fetching utilities
-export const fetchFirestoreData = async (collectionName, statusField, statusValue, transformFn) => {
-    try {
-        const querySnapshot = await getDocs(collection(db, collectionName));
-        return querySnapshot.docs
-            .map((doc) => ({ id: doc.id, ...doc.data() }))
-            .filter((item) => item[statusField] === statusValue)
-            .map(transformFn);
-    } catch (error) {
-        // Error fetching data
-        return [];
-    }
-};
-
-// Data transformers
-export const transformers = {
-    staff: (staff) => ({
-        value: staff.fullName,
-        label: staff.fullName,
-        id: staff.id,
-        shortName: staff.shortName
-    }),
-    vehicle: (vehicle) => ({
-        value: vehicle.licensePlate,
-        label: vehicle.licensePlate,
-        id: vehicle.id
-    }),
-    customer: (customer) => ({
-        value: customer.id,
-        label: `${customer.representativeName} - ${customer.companyName}`,
-        id: customer.id,
-        representativeName: customer.representativeName,
-        companyName: customer.companyName
-    })
-};
-
-// Validation utilities
-export const validateForm = (state) => {
-    state.submitted.value = true;
-    state.validationErrors.value = {};
-    state.errorMessage.value = '';
-
-    const requiredFields = {
-        tripDate: 'Vui lòng chọn ngày đi',
-        startingPoint: 'Vui lòng nhập điểm xuất phát',
-        endingPoint: 'Vui lòng nhập điểm đến',
-        driverName: 'Vui lòng nhập tên tài xế',
-        customerName: 'Vui lòng chọn khách hàng',
-        vehicleLicenseNumber: 'Vui lòng nhập biển số xe'
-    };
-
-    let isValid = true;
-
-    Object.entries(requiredFields).forEach(([field, message]) => {
-        if (!state.tripData.value[field]) {
-            state.validationErrors.value[field] = message;
-            isValid = false;
-        }
+    const date = new Date(timestamp);
+    return date.toLocaleDateString('vi-VN', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
     });
+};
 
-    if (!validateDistance(state.tripData.value.distance, state.validationErrors)) {
-        isValid = false;
+/**
+ * Format expenses from camelCase (frontend) to snake_case (database)
+ * @param {Object} expenses - Expenses in camelCase format
+ * @returns {Object} - Expenses in snake_case format
+ */
+export const formatExpensesToDatabase = (expenses) => {
+    if (!expenses) return {};
+
+    return {
+        police_fee: expenses.policeFee || 0,
+        toll_fee: expenses.tollFee || 0,
+        food_fee: expenses.foodFee || 0,
+        gas_money: expenses.gasMoney || 0,
+        mechanic_fee: expenses.mechanicFee || 0
+    };
+};
+
+/**
+ * Format expenses from snake_case (database) to camelCase (frontend)
+ * @param {Object} expenses - Expenses in snake_case format
+ * @returns {Object} - Expenses in camelCase format
+ */
+export const formatExpensesToFrontend = (expenses) => {
+    if (!expenses) return {};
+
+    return {
+        policeFee: expenses.police_fee || 0,
+        tollFee: expenses.toll_fee || 0,
+        foodFee: expenses.food_fee || 0,
+        gasMoney: expenses.gas_money || 0,
+        mechanicFee: expenses.mechanic_fee || 0
+    };
+};
+
+/**
+ * Calculate total expenses for a trip
+ * @param {Object} expenses - Trip expenses object
+ * @returns {number} - Total expenses
+ */
+export const calculateTotalExpenses = (expenses) => {
+    if (!expenses) return 0;
+
+    // Handle both camelCase (frontend) and snake_case (database) formats
+    const policeFee = expenses.policeFee || expenses.police_fee || 0;
+    const tollFee = expenses.tollFee || expenses.toll_fee || 0;
+    const foodFee = expenses.foodFee || expenses.food_fee || 0;
+    const gasMoney = expenses.gasMoney || expenses.gas_money || 0;
+    const mechanicFee = expenses.mechanicFee || expenses.mechanic_fee || 0;
+
+    return policeFee + tollFee + foodFee + gasMoney + mechanicFee;
+};
+
+/**
+ * Get severity class for trip status
+ * @param {string} status - Trip status
+ * @returns {string} - Severity class
+ */
+export const getStatusSeverity = (status) => {
+    switch (status) {
+        case 'PENDING':
+            return 'secondary';
+        case 'WAITING_FOR_PRICE':
+            return 'info';
+        case 'PRICED':
+            return 'success';
+        default:
+            return 'info';
     }
+};
 
-    if (!isValid) {
-        state.errorMessage.value = 'Vui lòng điền đầy đủ thông tin bắt buộc';
+/**
+ * Validate trip distance
+ * @param {number} distance - Trip distance
+ * @param {Object} options - Validation options
+ * @param {Object} options.value - Object to store validation errors
+ * @returns {boolean} - Is valid
+ */
+export const validateDistance = (distance, options = {}) => {
+    const isValid = distance > 0;
+
+    if (!isValid && options.value) {
+        options.value.distance = 'Khoảng cách phải lớn hơn 0';
     }
 
     return isValid;
 };
 
-export const validateDistance = (value, validationErrors) => {
-    const distanceValue = Number(value);
-    if (!distanceValue || distanceValue <= 0) {
-        validationErrors.value.distance = 'Vui lòng nhập quãng đường hợp lệ';
-        return false;
-    }
-    return true;
-};
+/**
+ * Get trips by status
+ * @param {string} status - Trip status
+ * @returns {Promise<Array>} - Array of trips
+ */
+export const getTripsByStatus = async (status) => {
+    try {
+        const { data, error } = await supabase.from('trips').select(TRIP_SELECT_WITH_RELATIONS).eq('status', status).order('trip_date', { ascending: false });
 
-// Helper functions
-export const getRelatedIds = (state) => {
-    const selectedDriver = state.staffList.value.find((staff) => staff.value === state.tripData.value.driverName);
-    const selectedAssistant = state.staffList.value.find((staff) => staff.value === state.tripData.value.assistantDriverName);
-    const selectedVehicle = state.vehicles.value.find((vehicle) => vehicle.value === state.tripData.value.vehicleLicenseNumber);
-    const selectedCustomer = state.customerList.value.find((customer) => customer.value === state.tripData.value.customerName);
-
-    return {
-        driverId: selectedDriver?.id || null,
-        driverShortName: selectedDriver?.shortName || null,
-        assistantDriverId: selectedAssistant?.id || null,
-        assistantDriverShortName: selectedAssistant?.shortName || null,
-        vehicleId: selectedVehicle?.id || null,
-        customerInfo: selectedCustomer || null
-    };
-};
-
-export const prepareTripData = (state, driverId, driverShortName, assistantDriverId, assistantDriverShortName, vehicleId, customerInfo) => {
-    const tripData = {
-        ...state.tripData.value,
-        driverId,
-        driverShortName,
-        assistantDriverId,
-        assistantDriverShortName,
-        vehicleId,
-        customerId: customerInfo?.id,
-        companyName: customerInfo?.companyName,
-        representativeName: customerInfo?.representativeName,
-        updatedAt: serverTimestamp(),
-        status: 'PENDING'
-    };
-
-    if (tripData.tripDate) {
-        tripData.tripDate = new Date(tripData.tripDate).toISOString();
-    }
-
-    return tripData;
-};
-
-export const generateExpenseDescription = (state, customerInfo) => {
-    const formatDate = (date) => {
-        if (!date) return '';
-        const dateObj = new Date(date);
-        return dateObj.toLocaleDateString('vi-VN', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric'
-        });
-    };
-
-    return `Chi phí chuyến đi ngày ${formatDate(state.tripData.value.tripDate)} - ${customerInfo?.companyName || ''} - ${state.tripData.value.startingPoint} - ${state.tripData.value.endingPoint}`;
-};
-
-// Expense handlers
-export const expenseHandlers = {
-    create: async (state, tripId, driverId, amount, customerInfo) => {
-        const description = generateExpenseDescription(state, customerInfo);
-        await expenseService.createExpenseWithoutBalanceUpdate(amount, state.tripData.value.tripDate ? new Date(state.tripData.value.tripDate) : new Date(), 'Chi phí chuyến đi', state.tripData.value.driverName, driverId, tripId, description);
-    },
-
-    update: async (state, tripId, driverId, customerInfo) => {
-        const totalExpenseAmount = Object.values(state.tripData.value.expenses).reduce((sum, value) => sum + (value || 0), 0);
-
-        const expenseQuery = query(collection(db, 'expenses'), where('tripId', '==', tripId));
-        const expenseSnapshot = await getDocs(expenseQuery);
-
-        if (expenseSnapshot.empty && totalExpenseAmount > 0) {
-            await expenseHandlers.create(state, tripId, driverId, totalExpenseAmount, customerInfo);
-        } else if (!expenseSnapshot.empty) {
-            const expenseDoc = expenseSnapshot.docs[0];
-            if (totalExpenseAmount > 0) {
-                const description = generateExpenseDescription(state, customerInfo);
-                await expenseService.updateExpenseAndBalance(
-                    expenseDoc.id,
-                    totalExpenseAmount,
-                    state.tripData.value.tripDate ? new Date(state.tripData.value.tripDate) : new Date(),
-                    'Chi phí chuyến đi',
-                    state.tripData.value.driverName,
-                    driverId,
-                    tripId,
-                    description
-                );
-            } else {
-                await deleteDoc(expenseDoc.ref);
-            }
-        }
+        if (error) throw error;
+        return data;
+    } catch (error) {
+        console.error(`Error getting trips with status ${status}:`, error);
+        throw error;
     }
 };
 
-// Composables
-export const useTripList = (statusMode = null) => {
-    const toast = useToast();
-    const router = useRouter();
-    const route = useRoute();
+/**
+ * Get trips by customer ID
+ * @param {string} customerId - Customer ID
+ * @returns {Promise<Array>} - Array of trips
+ */
+export const getTripsByCustomerId = async (customerId) => {
+    try {
+        const { data, error } = await supabase.from('trips').select(TRIP_SELECT_WITH_RELATIONS).eq('customer_id', customerId).order('trip_date', { ascending: false });
 
-    const state = {
-        driverFilterValue: ref(''),
-        assistantFilterValue: ref(''),
-        customerFilterValue: ref(''),
-        vehicleLicenseNumberFilter: ref(''),
-        startDateFilter: ref(null),
-        endDateFilter: ref(null),
-        allTrips: ref([]),
-        filteredTrips: ref([]),
-        loading: ref(false),
-        staffList: ref([]),
-        customerList: ref([]),
-        vehicleList: ref([]),
-        approvingTripId: ref(null),
-        statusMode: statusMode // 'PENDING', 'NON_PENDING', or null for all
-    };
+        if (error) throw error;
+        return data;
+    } catch (error) {
+        console.error(`Error getting trips for customer ${customerId}:`, error);
+        throw error;
+    }
+};
 
-    const fetchData = {
-        trips: async () => {
-            state.loading.value = true;
-            try {
-                const querySnapshot = await getDocs(collection(db, 'trips'));
-                state.allTrips.value = querySnapshot.docs.map((doc) => ({
-                    id: doc.id,
-                    ...doc.data()
-                }));
-                applyFilters();
-            } catch (error) {
-                // Error fetching trips
-                toast.add({
-                    severity: 'error',
-                    summary: 'Lỗi',
-                    detail: 'Không thể tải danh sách chuyến đi',
-                    life: 3000
-                });
-            } finally {
-                state.loading.value = false;
-            }
-        },
-        staff: async () => {
-            state.staffList.value = await fetchFirestoreData('staff', 'status', 'active', transformers.staff);
-        },
-        customers: async () => {
-            state.customerList.value = await fetchFirestoreData('customers', 'status', 'active', transformers.customer);
-        },
-        vehicles: async () => {
-            state.vehicleList.value = await fetchFirestoreData('vehicles', 'status', 'ACTIVE', transformers.vehicle);
-        }
-    };
+/**
+ * Create a new trip
+ * @param {Object} tripData - Trip data
+ * @returns {Promise<Object>} - Created trip
+ */
+export const createTrip = async (tripData) => {
+    try {
+        // Validate required fields
+        if (!tripData.startingPoint) throw new Error('Starting point is required');
+        if (!tripData.endingPoint) throw new Error('Ending point is required');
+        if (!validateDistance(tripData.distance)) throw new Error('Distance must be greater than 0');
 
-    const applyFilters = () => {
-        let result = [...state.allTrips.value];
+        // Format data for PostgreSQL
+        const formattedData = {
+            customer_id: tripData.customerId,
+            vehicle_id: tripData.vehicleId,
+            driver_id: tripData.driverId,
+            assistant_id: tripData.assistantId,
+            starting_point: tripData.startingPoint,
+            ending_point: tripData.endingPoint,
+            distance: tripData.distance,
+            trip_date: tripData.tripDate ? new Date(tripData.tripDate).toISOString() : null,
+            status: tripData.status || 'PENDING',
+            price: tripData.price || 0,
+            expenses: formatExpensesToDatabase(tripData.expenses),
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+        };
 
-        // Apply status mode filter first
-        if (state.statusMode === 'PENDING') {
-            // Only show PENDING trips
-            result = result.filter((trip) => trip.status === 'PENDING');
-        } else if (state.statusMode === 'NON_PENDING') {
-            // Only show WAITING_FOR_PRICE or PRICED trips
-            result = result.filter((trip) => trip.status === 'WAITING_FOR_PRICE' || trip.status === 'PRICED');
+        const { data, error } = await supabase.from('trips').insert(formattedData).select().single();
+
+        if (error) throw error;
+
+        // If trip is PRICED, calculate and save wages and update customer debt
+        if (data.status === 'PRICED') {
+            await saveWagesForTrip(data);
+            await updateCustomerDebtForTrip(data);
         }
 
-        if (state.driverFilterValue.value) {
-            result = result.filter((trip) => trip.driverName === state.driverFilterValue.value);
+        return data;
+    } catch (error) {
+        console.error('Error creating trip:', error);
+        throw error;
+    }
+};
+
+/**
+ * Update a trip
+ * @param {string} tripId - Trip ID
+ * @param {Object} tripData - Updated trip data
+ * @returns {Promise<Object>} - Updated trip
+ */
+export const updateTrip = async (tripId, tripData) => {
+    try {
+        // Get the current trip status and price before update
+        const { data: currentTrip, error: fetchError } = await supabase.from('trips').select('status, price, driver_id, assistant_id').eq('id', tripId).single();
+
+        if (fetchError) throw fetchError;
+
+        const oldStatus = currentTrip.status;
+        const oldPrice = currentTrip.price;
+        const oldDriverId = currentTrip.driver_id;
+        const oldAssistantId = currentTrip.assistant_id;
+
+        // Format data for PostgreSQL
+        const formattedData = {};
+
+        // Only include fields that are provided in tripData
+        if (tripData.customerId !== undefined) formattedData.customer_id = tripData.customerId;
+        if (tripData.vehicleId !== undefined) formattedData.vehicle_id = tripData.vehicleId;
+        if (tripData.driverId !== undefined) formattedData.driver_id = tripData.driverId;
+        if (tripData.assistantId !== undefined) formattedData.assistant_id = tripData.assistantId;
+        if (tripData.startingPoint !== undefined) formattedData.starting_point = tripData.startingPoint;
+        if (tripData.endingPoint !== undefined) formattedData.ending_point = tripData.endingPoint;
+        if (tripData.distance !== undefined) formattedData.distance = tripData.distance;
+        if (tripData.tripDate !== undefined) formattedData.trip_date = tripData.tripDate ? new Date(tripData.tripDate).toISOString() : null;
+        if (tripData.status !== undefined) formattedData.status = tripData.status;
+        if (tripData.price !== undefined) formattedData.price = tripData.price || 0;
+
+        // Only update expenses if provided
+        if (tripData.expenses) {
+            formattedData.expenses = formatExpensesToDatabase(tripData.expenses);
         }
 
-        if (state.assistantFilterValue.value) {
-            result = result.filter((trip) => trip.assistantDriverName === state.assistantFilterValue.value);
+        // Always update the updated_at timestamp
+        formattedData.updated_at = new Date().toISOString();
+
+        const { data, error } = await supabase.from('trips').update(formattedData).eq('id', tripId).select().single();
+
+        if (error) throw error;
+
+        // Determine if we need to recalculate wages and update customer debt
+        const statusChanged = data.status === 'PRICED' && oldStatus !== 'PRICED';
+        const priceChanged = data.status === 'PRICED' && data.price !== oldPrice;
+        const staffChanged = data.status === 'PRICED' && (data.driver_id !== oldDriverId || data.assistant_id !== oldAssistantId);
+
+        if (statusChanged || priceChanged || staffChanged) {
+            await saveWagesForTrip(data);
+            await updateCustomerDebtForTrip(data);
         }
 
-        if (state.customerFilterValue.value) {
-            result = result.filter((trip) => trip.customerId === state.customerFilterValue.value);
-        }
+        return data;
+    } catch (error) {
+        console.error(`Error updating trip ${tripId}:`, error);
+        throw error;
+    }
+};
 
-        if (state.vehicleLicenseNumberFilter.value) {
-            result = result.filter((trip) => trip.vehicleLicenseNumber === state.vehicleLicenseNumberFilter.value);
-        }
+/**
+ * Delete a trip
+ * @param {string} tripId - Trip ID
+ * @returns {Promise<void>}
+ */
+export const deleteTrip = async (tripId) => {
+    try {
+        const { error } = await supabase.from('trips').delete().eq('id', tripId);
 
-        if (state.startDateFilter.value || state.endDateFilter.value) {
-            result = result.filter((trip) => {
-                if (!trip.tripDate) return false;
-                const tripDate = new Date(trip.tripDate);
-                tripDate.setHours(0, 0, 0, 0);
+        if (error) throw error;
+    } catch (error) {
+        console.error(`Error deleting trip ${tripId}:`, error);
+        throw error;
+    }
+};
 
-                if (state.startDateFilter.value) {
-                    const startDate = new Date(state.startDateFilter.value);
-                    startDate.setHours(0, 0, 0, 0);
-                    if (tripDate < startDate) return false;
-                }
-
-                if (state.endDateFilter.value) {
-                    const endDate = new Date(state.endDateFilter.value);
-                    endDate.setHours(0, 0, 0, 0);
-                    if (tripDate > endDate) return false;
-                }
-
-                return true;
-            });
-        }
-
-        state.filteredTrips.value = result;
-    };
-
-    watch([state.driverFilterValue, state.assistantFilterValue, state.customerFilterValue, state.vehicleLicenseNumberFilter, state.startDateFilter, state.endDateFilter], applyFilters);
-
-    const approveTrip = async (tripId) => {
-        state.approvingTripId.value = tripId;
-        try {
-            // First, get the trip data to check expenses
-            const tripDoc = await getDoc(doc(db, 'trips', tripId));
-            if (!tripDoc.exists()) {
-                throw new Error('Trip not found');
-            }
-
-            const tripData = tripDoc.data();
-
-            // Check if there are expenses
-            const totalExpenseAmount = Object.values(tripData.expenses || {}).reduce((sum, value) => sum + (value || 0), 0);
-
-            // Update trip status to WAITING_FOR_PRICE
-            await updateDoc(doc(db, 'trips', tripId), {
+/**
+ * Approve a trip (change status to WAITING_FOR_PRICE)
+ * @param {string} tripId - Trip ID
+ * @returns {Promise<Object>} - Updated trip
+ */
+export const approveTrip = async (tripId) => {
+    try {
+        const { data, error } = await supabase
+            .from('trips')
+            .update({
                 status: 'WAITING_FOR_PRICE',
-                approvedAt: new Date().toISOString()
-            });
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', tripId)
+            .select()
+            .single();
 
-            // Check if there's an existing expense for this trip
-            const expenseQuery = query(collection(db, 'expenses'), where('tripId', '==', tripId));
-            const expenseSnapshot = await getDocs(expenseQuery);
+        if (error) throw error;
+        return data;
+    } catch (error) {
+        console.error(`Error approving trip ${tripId}:`, error);
+        throw error;
+    }
+};
 
-            // If no expense exists but there should be one, create it
-            if (expenseSnapshot.empty && totalExpenseAmount > 0) {
-                // Get driver information
-                const driverId = tripData.driverId;
-                const driverName = tripData.driverName;
-
-                if (!driverId || !driverName) {
-                    throw new Error('Missing driver information');
-                }
-
-                // Create expense
-                const description = `Chi phí chuyến đi ngày ${new Date(tripData.tripDate).toLocaleDateString('vi-VN')} - ${tripData.companyName || ''} - ${tripData.startingPoint} - ${tripData.endingPoint}`;
-
-                await expenseService.createExpenseWithoutBalanceUpdate(totalExpenseAmount, tripData.tripDate ? new Date(tripData.tripDate) : new Date(), 'Chi phí chuyến đi', driverName, driverId, tripId, description);
-            }
-
-            // Update balance for trip expenses
-            await balanceService.updateBalanceForTripExpenses(tripId);
-
-            toast.add({
-                severity: 'success',
-                summary: 'Thành công',
-                detail: 'Đã duyệt chuyến xe thành công',
-                life: 3000
-            });
-            await fetchData.trips();
-        } catch (error) {
-            toast.add({
-                severity: 'error',
-                summary: 'Lỗi',
-                detail: 'Không thể duyệt chuyến xe',
-                life: 3000
-            });
-        } finally {
-            state.approvingTripId.value = null;
+/**
+ * Set price for a trip (change status to PRICED)
+ * @param {string} tripId - Trip ID
+ * @param {number} price - Trip price
+ * @returns {Promise<Object>} - Updated trip
+ */
+export const setPriceForTrip = async (tripId, price) => {
+    try {
+        // Validate price
+        if (!price || price <= 0) {
+            throw new Error('Price must be greater than 0');
         }
-    };
 
-    const setPriced = async (tripId, price) => {
-        try {
-            if (!price || price <= 0) {
-                throw new Error('Giá chuyến đi phải lớn hơn 0');
-            }
-
-            await updateDoc(doc(db, 'trips', tripId), {
+        // Get the trip with related data for wage calculation
+        const { data, error } = await supabase
+            .from('trips')
+            .update({
                 status: 'PRICED',
-                price: price,
-                pricedAt: new Date().toISOString()
-            });
+                price,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', tripId)
+            .select(TRIP_SELECT_WITH_RELATIONS)
+            .single();
 
-            toast.add({
-                severity: 'success',
-                summary: 'Thành công',
-                detail: 'Đã báo giá chuyến xe thành công',
-                life: 3000
-            });
-            await fetchData.trips();
+        if (error) throw error;
+
+        // Calculate and save wages and update customer debt
+        await saveWagesForTrip(data);
+        await updateCustomerDebtForTrip(data);
+
+        return data;
+    } catch (error) {
+        console.error(`Error setting price for trip ${tripId}:`, error);
+        throw error;
+    }
+};
+
+/**
+ * Composable for trip list functionality
+ * @param {string} statusFilter - Initial status filter
+ * @returns {Object} - Trip list functionality
+ */
+export const useTripList = (statusFilter = '') => {
+    const filteredTrips = ref([]);
+    const loading = ref(false);
+    const approvingTripId = ref(null);
+
+    // Filter values
+    const driverFilterValue = ref(null);
+    const assistantFilterValue = ref(null);
+    const customerFilterValue = ref(null);
+    const vehicleLicenseNumberFilter = ref(null);
+    const startDateFilter = ref(null);
+    const endDateFilter = ref(null);
+
+    // Lists for dropdowns
+    const staffList = ref([]);
+    const customerList = ref([]);
+    const vehicleList = ref([]);
+
+    // Fetch trips based on status
+    const fetchTrips = async () => {
+        loading.value = true;
+        try {
+            let query;
+
+            if (statusFilter === 'PENDING') {
+                // Fetch only pending trips
+                query = supabase.from('trips').select(TRIP_SELECT_WITH_RELATIONS).eq('status', 'PENDING');
+            } else if (statusFilter === 'NON_PENDING') {
+                // Fetch waiting for price and priced trips
+                query = supabase.from('trips').select(TRIP_SELECT_WITH_RELATIONS).or('status.eq.WAITING_FOR_PRICE,status.eq.PRICED');
+            } else {
+                // Fetch all trips
+                query = supabase.from('trips').select(TRIP_SELECT_WITH_RELATIONS);
+            }
+
+            // Apply filters if they exist
+            if (driverFilterValue.value) {
+                query = query.eq('driver_id', driverFilterValue.value);
+            }
+
+            if (assistantFilterValue.value) {
+                query = query.eq('assistant_id', assistantFilterValue.value);
+            }
+
+            if (customerFilterValue.value) {
+                query = query.eq('customer_id', customerFilterValue.value);
+            }
+
+            if (vehicleLicenseNumberFilter.value) {
+                query = query.eq('vehicle_id', vehicleLicenseNumberFilter.value);
+            }
+
+            if (startDateFilter.value) {
+                const startDate = new Date(startDateFilter.value);
+                startDate.setHours(0, 0, 0, 0);
+                query = query.gte('trip_date', startDate.toISOString());
+            }
+
+            if (endDateFilter.value) {
+                const endDate = new Date(endDateFilter.value);
+                endDate.setHours(23, 59, 59, 999);
+                query = query.lte('trip_date', endDate.toISOString());
+            }
+
+            // Order by trip date (newest first)
+            query = query.order('trip_date', { ascending: false });
+
+            const { data, error } = await query;
+
+            if (error) throw error;
+
+            // Transform data to match the expected format
+            filteredTrips.value = data.map((trip) => ({
+                id: trip.id,
+                customerId: trip.customer_id,
+                vehicleId: trip.vehicle_id,
+                driverId: trip.driver_id,
+                assistantId: trip.assistant_id,
+                startingPoint: trip.starting_point,
+                endingPoint: trip.ending_point,
+                distance: trip.distance,
+                tripDate: trip.trip_date,
+                status: trip.status,
+                price: trip.price,
+                expenses: formatExpensesToFrontend(trip.expenses),
+                // Add derived fields
+                customerDisplayName: trip.customers?.company_name || trip.customers?.representative_name || 'Unknown',
+                vehicleLicenseNumber: trip.vehicles?.license_number || 'Unknown',
+                driverName: trip.driver?.full_name || 'Unknown',
+                assistantDriverName: trip.assistant?.full_name || 'Unknown',
+                createdAt: trip.created_at,
+                updatedAt: trip.updated_at
+            }));
         } catch (error) {
-            toast.add({
-                severity: 'error',
-                summary: 'Lỗi',
-                detail: error.message || 'Không thể báo giá chuyến xe',
-                life: 3000
-            });
+            console.error('Error fetching trips:', error);
+        } finally {
+            loading.value = false;
         }
     };
 
+    // Fetch staff for dropdown
+    const fetchStaff = async () => {
+        try {
+            const { data, error } = await supabase.from('staff').select('id, full_name, short_name').order('full_name');
+
+            if (error) throw error;
+
+            staffList.value = data.map((staff) => ({
+                value: staff.id,
+                label: staff.full_name
+            }));
+        } catch (error) {
+            console.error('Error fetching staff:', error);
+        }
+    };
+
+    // Fetch customers for dropdown
+    const fetchCustomers = async () => {
+        try {
+            const { data, error } = await supabase.from('customers').select('id, company_name, representative_name').order('company_name');
+
+            if (error) throw error;
+
+            customerList.value = data.map((customer) => ({
+                value: customer.id,
+                label: customer.company_name || customer.representative_name
+            }));
+        } catch (error) {
+            console.error('Error fetching customers:', error);
+        }
+    };
+
+    // Fetch vehicles for dropdown
+    const fetchVehicles = async () => {
+        try {
+            const { data, error } = await supabase.from('vehicles').select('id, license_number').order('license_number');
+
+            if (error) throw error;
+
+            vehicleList.value = data.map((vehicle) => ({
+                value: vehicle.id,
+                label: vehicle.license_number
+            }));
+        } catch (error) {
+            console.error('Error fetching vehicles:', error);
+        }
+    };
+
+    // Approve a trip
+    const handleApproveTrip = async (tripId) => {
+        approvingTripId.value = tripId;
+        try {
+            await approveTrip(tripId);
+            await fetchTrips();
+        } catch (error) {
+            console.error('Error approving trip:', error);
+        } finally {
+            approvingTripId.value = null;
+        }
+    };
+
+    // Set price for a trip
+    const handleSetPriced = async (tripId, price) => {
+        try {
+            // Validate price
+            if (!price || price <= 0) {
+                throw new Error('Price must be greater than 0');
+            }
+
+            // Set price and calculate wages
+            const updatedTrip = await setPriceForTrip(tripId, price);
+
+            // Refresh trip list
+            await fetchTrips();
+
+            // Return success with wage information
+            const driverWage = updatedTrip.driver_id ? calculateDriverWage(updatedTrip) : 0;
+            const assistantWage = updatedTrip.assistant_id ? calculateAssistantWage(updatedTrip) : 0;
+
+            return {
+                success: true,
+                message: 'Trip price set and wages calculated successfully',
+                driverWage,
+                assistantWage,
+                trip: updatedTrip
+            };
+        } catch (error) {
+            console.error('Error setting price for trip:', error);
+            throw error;
+        }
+    };
+
+    // Watch for filter changes
+    watch([driverFilterValue, assistantFilterValue, customerFilterValue, vehicleLicenseNumberFilter, startDateFilter, endDateFilter], () => {
+        fetchTrips();
+    });
+
     return {
-        ...state,
-        fetchData,
-        approveTrip,
-        setPriced
+        filteredTrips,
+        loading,
+        driverFilterValue,
+        assistantFilterValue,
+        customerFilterValue,
+        vehicleLicenseNumberFilter,
+        startDateFilter,
+        endDateFilter,
+        staffList,
+        customerList,
+        vehicleList,
+        approvingTripId,
+        fetchData: {
+            trips: fetchTrips,
+            staff: fetchStaff,
+            customers: fetchCustomers,
+            vehicles: fetchVehicles
+        },
+        approveTrip: handleApproveTrip,
+        setPriced: handleSetPriced
     };
 };
 
+/**
+ * Composable for trip edit functionality
+ * @param {string} tripId - Trip ID
+ * @returns {Object} - Trip edit functionality
+ */
 export const useTripEdit = (tripId) => {
-    const router = useRouter();
-    const toast = useToast();
-
-    const state = {
-        loading: ref(false),
-        saving: ref(false),
-        errorMessage: ref(''),
-        submitted: ref(false),
-        validationErrors: ref({}),
-        vehicles: ref([]),
-        staffList: ref([]),
-        customerList: ref([]),
-        tripData: ref({ ...DEFAULT_TRIP_DATA }),
-        deleteDialog: ref(false)
-    };
-
-    const fetchData = {
-        staff: async () => {
-            state.staffList.value = await fetchFirestoreData('staff', 'status', 'active', transformers.staff);
-        },
-        vehicles: async () => {
-            state.vehicles.value = await fetchFirestoreData('vehicles', 'status', 'ACTIVE', transformers.vehicle);
-        },
-        customers: async () => {
-            state.customerList.value = await fetchFirestoreData('customers', 'status', 'active', transformers.customer);
-        },
-        tripData: async () => {
-            state.loading.value = true;
-            try {
-                const tripDoc = await getDoc(doc(db, 'trips', tripId));
-                if (!tripDoc.exists()) {
-                    toast.add({
-                        severity: 'error',
-                        summary: 'Lỗi',
-                        detail: 'Không tìm thấy thông tin chuyến đi',
-                        life: 3000
-                    });
-                    router.push('/trip/list');
-                    return;
-                }
-                const data = tripDoc.data();
-                if (data.tripDate) data.tripDate = new Date(data.tripDate);
-                state.tripData.value = { ...data, id: tripDoc.id };
-            } finally {
-                state.loading.value = false;
-            }
+    // Initialize trip with default values to prevent null reference errors
+    const trip = ref({
+        customerId: null,
+        vehicleId: null,
+        driverId: null,
+        assistantId: null,
+        startingPoint: '',
+        endingPoint: '',
+        distance: 0,
+        tripDate: new Date(),
+        status: 'PENDING',
+        price: 0,
+        expenses: {
+            policeFee: 0,
+            tollFee: 0,
+            foodFee: 0,
+            gasMoney: 0,
+            mechanicFee: 0
         }
-    };
+    });
+    const loading = ref(false);
+    const saving = ref(false);
+    const error = ref(null);
 
-    const updateTrip = async () => {
-        if (!validateForm(state)) return;
+    // Lists for dropdowns
+    const staffList = ref([]);
+    const customerList = ref([]);
+    const vehicleList = ref([]);
 
-        state.saving.value = true;
-        state.errorMessage.value = '';
+    // Fetch trip data
+    const fetchTrip = async () => {
+        loading.value = true;
+        error.value = null;
 
         try {
-            const relatedIds = getRelatedIds(state);
-            const tripRef = doc(db, 'trips', tripId);
-            const tripData = prepareTripData(state, ...Object.values(relatedIds));
+            const { data, error: fetchError } = await supabase.from('trips').select(TRIP_SELECT_WITH_RELATIONS).eq('id', tripId).single();
 
-            await updateDoc(tripRef, tripData);
-            await expenseHandlers.update(state, tripId, relatedIds.driverId, relatedIds.customerInfo);
+            if (fetchError) throw fetchError;
 
-            toast.add({
-                severity: 'success',
-                summary: 'Thành công',
-                detail: 'Đã cập nhật thông tin chuyến đi',
-                life: 3000
-            });
-            router.push('/trip/list');
-        } catch (error) {
-            // Error updating trip
-            state.errorMessage.value = 'Không thể cập nhật thông tin chuyến đi. Vui lòng thử lại.';
+            // Transform data to match the expected format
+            trip.value = {
+                id: data.id,
+                customerId: data.customer_id,
+                vehicleId: data.vehicle_id,
+                driverId: data.driver_id,
+                assistantId: data.assistant_id,
+                startingPoint: data.starting_point,
+                endingPoint: data.ending_point,
+                distance: data.distance,
+                tripDate: data.trip_date,
+                status: data.status,
+                price: data.price,
+                expenses: formatExpensesToFrontend(data.expenses),
+                // Add derived fields
+                customerDisplayName: data.customers?.company_name || data.customers?.representative_name || 'Unknown',
+                vehicleLicenseNumber: data.vehicles?.license_number || 'Unknown',
+                driverName: data.driver?.full_name || 'Unknown',
+                assistantDriverName: data.assistant?.full_name || 'Unknown',
+                createdAt: data.created_at,
+                updatedAt: data.updated_at
+            };
+        } catch (err) {
+            console.error('Error fetching trip:', err);
+            error.value = 'Failed to load trip data';
         } finally {
-            state.saving.value = false;
+            loading.value = false;
         }
     };
 
-    const deleteTrip = async () => {
+    // Fetch staff for dropdown
+    const fetchStaff = async () => {
         try {
-            const expensesQuery = query(collection(db, 'expenses'), where('tripId', '==', tripId));
-            const expenseSnapshot = await getDocs(expensesQuery);
+            const { data, error } = await supabase.from('staff').select('id, full_name, short_name').order('full_name');
 
-            if (!expenseSnapshot.empty) {
-                await deleteDoc(expenseSnapshot.docs[0].ref);
-            }
+            if (error) throw error;
 
-            await deleteDoc(doc(db, 'trips', tripId));
-
-            toast.add({
-                severity: 'success',
-                summary: 'Thành công',
-                detail: 'Đã xóa chuyến đi',
-                life: 3000
-            });
-            router.push('/trip/list');
+            staffList.value = data.map((staff) => ({
+                value: staff.id,
+                label: staff.full_name
+            }));
         } catch (error) {
-            // Error deleting trip
-            toast.add({
-                severity: 'error',
-                summary: 'Lỗi',
-                detail: 'Không thể xóa chuyến đi',
-                life: 3000
-            });
+            console.error('Error fetching staff:', error);
         }
     };
+
+    // Fetch customers for dropdown
+    const fetchCustomers = async () => {
+        try {
+            const { data, error } = await supabase.from('customers').select('id, company_name, representative_name').order('company_name');
+
+            if (error) throw error;
+
+            customerList.value = data.map((customer) => ({
+                value: customer.id,
+                label: customer.company_name || customer.representative_name
+            }));
+        } catch (error) {
+            console.error('Error fetching customers:', error);
+        }
+    };
+
+    // Fetch vehicles for dropdown
+    const fetchVehicles = async () => {
+        try {
+            const { data, error } = await supabase.from('vehicles').select('id, license_number').order('license_number');
+
+            if (error) throw error;
+
+            vehicleList.value = data.map((vehicle) => ({
+                value: vehicle.id,
+                label: vehicle.license_number
+            }));
+        } catch (error) {
+            console.error('Error fetching vehicles:', error);
+        }
+    };
+
+    // Save trip changes
+    const saveTrip = async () => {
+        saving.value = true;
+        error.value = null;
+
+        try {
+            if (!trip.value) throw new Error('No trip data to save');
+
+            await updateTrip(tripId, trip.value);
+
+            return true;
+        } catch (err) {
+            console.error('Error saving trip:', err);
+            error.value = 'Failed to save trip data';
+            return false;
+        } finally {
+            saving.value = false;
+        }
+    };
+
+    // Initialize data
+    onMounted(() => {
+        fetchTrip();
+        fetchStaff();
+        fetchCustomers();
+        fetchVehicles();
+    });
 
     return {
-        ...state,
-        fetchData,
-        updateTrip,
-        deleteTrip,
-        router,
-        statusOptions: Object.entries(STATUS_TRANSLATIONS).map(([value, { label }]) => ({ label, value }))
+        tripData: trip,
+        loading,
+        saving,
+        errorMessage: error,
+        deleteDialog: ref(false),
+        submitted: ref(false),
+        validationErrors: ref({}),
+        staffList,
+        customerList,
+        vehicles: vehicleList,
+        router: { push: (path) => (window.location.href = path) },
+        fetchData: {
+            tripData: fetchTrip,
+            vehicles: fetchVehicles,
+            staff: fetchStaff,
+            customers: fetchCustomers
+        },
+        deleteTrip: async () => {
+            try {
+                // Call the deleteTrip function directly
+                await supabase.from('trips').delete().eq('id', tripId);
+                window.location.href = '/trip/list';
+                return true;
+            } catch (err) {
+                error.value = 'Failed to delete trip';
+                return false;
+            }
+        },
+        updateTrip: async () => {
+            const result = await saveTrip();
+            if (result) {
+                window.location.href = '/trip/list';
+            }
+            return result;
+        }
     };
 };
 
+/**
+ * Composable for trip add functionality
+ * @returns {Object} - Trip add functionality
+ */
 export const useTripAdd = () => {
-    const router = useRouter();
-    const toast = useToast();
+    const trip = ref({
+        customerId: null,
+        vehicleId: null,
+        driverId: null,
+        assistantId: null,
+        startingPoint: '',
+        endingPoint: '',
+        distance: 0,
+        tripDate: new Date(),
+        status: 'PENDING',
+        price: 0,
+        expenses: {
+            policeFee: 0,
+            tollFee: 0,
+            foodFee: 0,
+            gasMoney: 0,
+            mechanicFee: 0
+        }
+    });
 
-    const state = {
-        loading: ref(false),
-        saving: ref(false),
-        errorMessage: ref(''),
-        submitted: ref(false),
-        validationErrors: ref({}),
-        vehicles: ref([]),
-        staffList: ref([]),
-        customerList: ref([]),
-        tripData: ref({ ...DEFAULT_TRIP_DATA })
-    };
+    const loading = ref(false);
+    const saving = ref(false);
+    const error = ref(null);
 
-    const fetchData = {
-        staff: async () => {
-            state.staffList.value = await fetchFirestoreData('staff', 'status', 'active', transformers.staff);
-        },
-        vehicles: async () => {
-            state.vehicles.value = await fetchFirestoreData('vehicles', 'status', 'ACTIVE', transformers.vehicle);
-        },
-        customers: async () => {
-            state.customerList.value = await fetchFirestoreData('customers', 'status', 'active', transformers.customer);
+    // Lists for dropdowns
+    const staffList = ref([]);
+    const customerList = ref([]);
+    const vehicleList = ref([]);
+
+    // Fetch staff for dropdown
+    const fetchStaff = async () => {
+        try {
+            const { data, error } = await supabase.from('staff').select('id, full_name, short_name').order('full_name');
+
+            if (error) throw error;
+
+            staffList.value = data.map((staff) => ({
+                value: staff.id,
+                label: staff.full_name
+            }));
+        } catch (error) {
+            console.error('Error fetching staff:', error);
         }
     };
 
-    const createTrip = async () => {
-        if (!validateForm(state)) return;
+    // Fetch customers for dropdown
+    const fetchCustomers = async () => {
+        try {
+            const { data, error } = await supabase.from('customers').select('id, company_name, representative_name').order('company_name');
 
-        state.saving.value = true;
-        state.errorMessage.value = '';
+            if (error) throw error;
+
+            customerList.value = data.map((customer) => ({
+                value: customer.id,
+                label: customer.company_name || customer.representative_name
+            }));
+        } catch (error) {
+            console.error('Error fetching customers:', error);
+        }
+    };
+
+    // Fetch vehicles for dropdown
+    const fetchVehicles = async () => {
+        try {
+            const { data, error } = await supabase.from('vehicles').select('id, license_number').order('license_number');
+
+            if (error) throw error;
+
+            vehicleList.value = data.map((vehicle) => ({
+                value: vehicle.id,
+                label: vehicle.license_number
+            }));
+        } catch (error) {
+            console.error('Error fetching vehicles:', error);
+        }
+    };
+
+    // Save new trip
+    const saveTrip = async () => {
+        saving.value = true;
+        error.value = null;
 
         try {
-            const relatedIds = getRelatedIds(state);
-            const tripData = prepareTripData(state, ...Object.values(relatedIds));
-            tripData.createdAt = serverTimestamp();
+            const result = await createTrip(trip.value);
 
-            const tripRef = await addDoc(collection(db, 'trips'), tripData);
-            await expenseHandlers.update(state, tripRef.id, relatedIds.driverId, relatedIds.customerInfo);
+            // Reset form after successful save
+            trip.value = {
+                customerId: null,
+                vehicleId: null,
+                driverId: null,
+                assistantId: null,
+                startingPoint: '',
+                endingPoint: '',
+                distance: 0,
+                tripDate: new Date(),
+                status: 'PENDING',
+                price: 0,
+                expenses: {
+                    policeFee: 0,
+                    tollFee: 0,
+                    foodFee: 0,
+                    gasMoney: 0,
+                    mechanicFee: 0
+                }
+            };
 
-            toast.add({
-                severity: 'success',
-                summary: 'Thành công',
-                detail: 'Đã tạo chuyến đi mới. Vui lòng chờ phê duyệt.',
-                life: 3000
-            });
-            router.push('/trip/list');
-        } catch (error) {
-            // Error creating trip
-            state.errorMessage.value = 'Không thể tạo chuyến đi mới. Vui lòng thử lại.';
+            return result;
+        } catch (err) {
+            console.error('Error saving trip:', err);
+            error.value = 'Failed to save trip data';
+            return null;
         } finally {
-            state.saving.value = false;
+            saving.value = false;
         }
     };
 
+    // Initialize data
+    onMounted(() => {
+        fetchStaff();
+        fetchCustomers();
+        fetchVehicles();
+    });
+
     return {
-        ...state,
-        fetchData,
-        createTrip,
-        statusOptions: Object.entries(STATUS_TRANSLATIONS).map(([value, { label }]) => ({ label, value }))
+        tripData: trip,
+        loading,
+        saving,
+        errorMessage: error,
+        submitted: ref(false),
+        validationErrors: ref({}),
+        staffList,
+        customerList,
+        vehicles: vehicleList,
+        fetchData: {
+            vehicles: fetchVehicles,
+            staff: fetchStaff,
+            customers: fetchCustomers
+        },
+        createTrip: async () => {
+            const result = await saveTrip();
+            if (result) {
+                window.location.href = '/trip/list';
+            }
+            return result;
+        }
     };
 };

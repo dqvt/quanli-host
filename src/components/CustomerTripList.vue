@@ -1,8 +1,7 @@
 <script setup>
-import { db } from '@/config/firebase';
+import { supabase } from '@/config/supabase';
 import { addOrUpdateDebt, formatCurrency } from '@/services/debt';
 import { formatTimestamp } from '@/services/trip';
-import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import Button from 'primevue/button';
 import Card from 'primevue/card';
 import Column from 'primevue/column';
@@ -130,9 +129,20 @@ async function fetchData() {
 
 async function fetchCustomer() {
     try {
-        const customerDoc = await getDoc(doc(db, 'customers', customerId));
-        if (customerDoc.exists()) {
-            customer.value = { id: customerDoc.id, ...customerDoc.data() };
+        const { data, error } = await supabase.from('customers').select('*').eq('id', customerId).single();
+
+        if (error) throw error;
+
+        if (data) {
+            customer.value = {
+                id: data.id,
+                companyName: data.company_name,
+                representativeName: data.representative_name,
+                contactNumber: data.contact_number,
+                email: data.email,
+                address: data.address,
+                taxNumber: data.tax_number
+            };
         } else {
             toast.add({
                 severity: 'error',
@@ -150,17 +160,47 @@ async function fetchCustomer() {
 
 async function fetchCustomerTrips() {
     try {
-        const tripsQuery = query(collection(db, 'trips'), where('customerId', '==', customerId));
+        const { data, error } = await supabase
+            .from('trips')
+            .select(
+                `
+                *,
+                vehicles(id, license_number),
+                driver:staff!fk_driver(id, full_name),
+                assistant:staff!fk_assistant(id, full_name)
+            `
+            )
+            .eq('customer_id', customerId);
 
-        const tripsSnapshot = await getDocs(tripsQuery);
+        if (error) throw error;
 
-        const tripsData = [];
-        tripsSnapshot.forEach((doc) => {
-            tripsData.push({
-                id: doc.id,
-                ...doc.data()
-            });
-        });
+        // Transform data to match the expected format
+        const tripsData = data.map((trip) => ({
+            id: trip.id,
+            customerId: trip.customer_id,
+            vehicleId: trip.vehicle_id,
+            driverId: trip.driver_id,
+            assistantId: trip.assistant_id,
+            startingPoint: trip.starting_point,
+            endingPoint: trip.ending_point,
+            distance: trip.distance,
+            tripDate: trip.trip_date,
+            status: trip.status,
+            price: trip.price,
+            expenses: {
+                policeFee: trip.expenses?.police_fee || 0,
+                tollFee: trip.expenses?.toll_fee || 0,
+                foodFee: trip.expenses?.food_fee || 0,
+                gasMoney: trip.expenses?.gas_money || 0,
+                mechanicFee: trip.expenses?.mechanic_fee || 0
+            },
+            // Add derived fields
+            vehicleLicenseNumber: trip.vehicles?.license_number || 'Unknown',
+            driverName: trip.driver?.full_name || 'Unknown',
+            assistantDriverName: trip.assistant?.full_name || 'Unknown',
+            createdAt: trip.created_at,
+            updatedAt: trip.updated_at
+        }));
 
         // Sort trips by date (newest first)
         trips.value = tripsData.sort((a, b) => {

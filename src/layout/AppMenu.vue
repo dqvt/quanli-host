@@ -26,10 +26,6 @@ const model = ref([
     {
         label: 'Quản lý nhân viên',
         items: [{ label: 'Danh sách nhân viên', icon: 'pi pi-fw pi-users', to: '/staff/list', class: 'rotated-icon' }]
-    },
-    {
-        label: 'Quản lý tạm ứng',
-        items: [{ label: 'Danh sách', icon: 'pi pi-fw pi-list', to: '/expense/list', class: 'rotated-icon' }]
     }
 ]);
 </script>

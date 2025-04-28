@@ -1,7 +1,6 @@
 <script setup>
-import { db } from '@/config/firebase';
+import { supabase } from '@/config/supabase';
 import { addOrUpdateDebt, addPayment, deletePayment, formatCurrency, getCustomerDebt, getCustomerPayments } from '@/services/debt';
-import { doc, getDoc } from 'firebase/firestore';
 import Button from 'primevue/button';
 import Calendar from 'primevue/calendar';
 import Card from 'primevue/card';
@@ -95,9 +94,11 @@ const customerData = ref({
 // Add this function to fetch customer data
 const fetchCustomerData = async () => {
     try {
-        const customerDoc = await getDoc(doc(db, 'customers', customerId));
-        if (customerDoc.exists()) {
-            customerData.value = customerDoc.data();
+        const { data, error } = await supabase.from('customers').select('*').eq('id', customerId).single();
+
+        if (error) throw error;
+        if (data) {
+            customerData.value = data;
         }
     } catch (error) {
         console.error('Error fetching customer data:', error);
@@ -128,13 +129,16 @@ async function fetchData() {
         await fetchCustomer();
 
         // Fetch debt and payment data
-        debts.value = await getCustomerDebt(customerId);
-        payments.value = await getCustomerPayments(customerId);
+        const debtData = await getCustomerDebt(customerId);
+        debts.value = debtData.debts || [];
+
+        const paymentData = await getCustomerPayments(customerId);
+        payments.value = paymentData || [];
 
         // Sort payments by date (newest first)
         payments.value.sort((a, b) => {
-            const dateA = a.paymentDate instanceof Date ? a.paymentDate : new Date(a.paymentDate);
-            const dateB = b.paymentDate instanceof Date ? b.paymentDate : new Date(b.paymentDate);
+            const dateA = a.date ? new Date(a.date) : new Date(0);
+            const dateB = b.date ? new Date(b.date) : new Date(0);
             return dateB - dateA;
         });
     } catch (error) {
@@ -152,9 +156,11 @@ async function fetchData() {
 
 async function fetchCustomer() {
     try {
-        const customerDoc = await getDoc(doc(db, 'customers', customerId));
-        if (customerDoc.exists()) {
-            customer.value = { id: customerDoc.id, ...customerDoc.data() };
+        const { data, error } = await supabase.from('customers').select('*').eq('id', customerId).single();
+
+        if (error) throw error;
+        if (data) {
+            customer.value = data;
         } else {
             toast.add({
                 severity: 'error',
@@ -182,7 +188,7 @@ async function saveNewDebt() {
             return;
         }
 
-        await addOrUpdateDebt(customerId, customer.value.companyName, customer.value.representativeName, newDebt.value.year, newDebt.value.amount);
+        await addOrUpdateDebt(customerId, customer.value.company_name, customer.value.representative_name, newDebt.value.year, newDebt.value.amount);
 
         toast.add({
             severity: 'success',
@@ -227,7 +233,7 @@ async function saveNewPayment() {
             return;
         }
 
-        await addPayment(customerId, customer.value.companyName, newPayment.value.amount, newPayment.value.paymentDate, newPayment.value.year, newPayment.value.notes);
+        await addPayment(customerId, customer.value.company_name, customer.value.representative_name, newPayment.value.amount, newPayment.value.paymentDate, newPayment.value.notes);
 
         toast.add({
             severity: 'success',
@@ -344,16 +350,16 @@ function goBack() {
             <!-- Customer details -->
             <Card class="mb-4">
                 <template #title>
-                    <div class="text-xl font-bold">{{ customer?.companyName || '(Không có tên công ty)' }}</div>
+                    <div class="text-xl font-bold">{{ customer?.company_name || '(Không có tên công ty)' }}</div>
                 </template>
                 <template #subtitle>
-                    <div class="text-gray-600">Người đại diện: {{ customer?.representativeName }}</div>
+                    <div class="text-gray-600">Người đại diện: {{ customer?.representative_name }}</div>
                 </template>
                 <template #content>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
                             <div class="text-sm text-gray-600">Số điện thoại</div>
-                            <div>{{ customer?.contactNumber || 'Không có' }}</div>
+                            <div>{{ customer?.contact_number || 'Không có' }}</div>
                         </div>
                         <div>
                             <div class="text-sm text-gray-600">Email</div>
@@ -411,14 +417,14 @@ function goBack() {
                                 {{ formatCurrency(data.amount) }}
                             </template>
                         </Column>
-                        <Column field="createdAt" header="Ngày tạo" sortable>
+                        <Column field="created_at" header="Ngày tạo" sortable>
                             <template #body="{ data }">
-                                {{ formatDate(data.createdAt?.toDate()) }}
+                                {{ formatDate(data.created_at) }}
                             </template>
                         </Column>
-                        <Column field="updatedAt" header="Ngày cập nhật" sortable>
+                        <Column field="updated_at" header="Ngày cập nhật" sortable>
                             <template #body="{ data }">
-                                {{ formatDate(data.updatedAt?.toDate()) }}
+                                {{ formatDate(data.updated_at) }}
                             </template>
                         </Column>
                     </DataTable>
@@ -427,21 +433,20 @@ function goBack() {
                 <!-- Payments tab -->
                 <TabPanel header="Lịch sử thanh toán">
                     <DataTable :value="payments" :paginator="true" :rows="5" :rowsPerPageOptions="[5, 10, 20]" responsiveLayout="scroll" class="p-datatable-sm">
-                        <Column field="paymentDate" header="Ngày thanh toán" sortable>
+                        <Column field="date" header="Ngày thanh toán" sortable>
                             <template #body="{ data }">
-                                {{ formatDate(data.paymentDate) }}
+                                {{ formatDate(data.date) }}
                             </template>
                         </Column>
-                        <Column field="year" header="Năm" sortable></Column>
                         <Column field="amount" header="Số tiền" sortable>
                             <template #body="{ data }">
                                 {{ formatCurrency(data.amount) }}
                             </template>
                         </Column>
-                        <Column field="notes" header="Ghi chú"></Column>
-                        <Column field="createdAt" header="Ngày tạo" sortable>
+                        <Column field="note" header="Ghi chú"></Column>
+                        <Column field="created_at" header="Ngày tạo" sortable>
                             <template #body="{ data }">
-                                {{ formatDate(data.createdAt?.toDate()) }}
+                                {{ formatDate(data.created_at) }}
                             </template>
                         </Column>
                         <Column header="Thao tác" style="width: 6rem">
@@ -476,10 +481,6 @@ function goBack() {
         <Dialog v-model:visible="newPaymentDialog" header="Thêm thanh toán mới" :modal="true" :closable="true" :style="{ width: '450px' }">
             <div class="flex flex-col gap-4 p-4">
                 <div class="flex flex-col gap-2">
-                    <label for="paymentYear">Năm</label>
-                    <InputText id="paymentYear" v-model.number="newPayment.year" type="number" />
-                </div>
-                <div class="flex flex-col gap-2">
                     <label for="paymentAmount">Số tiền</label>
                     <InputNumber id="paymentAmount" v-model="newPayment.amount" mode="currency" currency="VND" locale="vi-VN" :minFractionDigits="0" :maxFractionDigits="0" />
                 </div>
@@ -499,25 +500,21 @@ function goBack() {
         </Dialog>
 
         <!-- Delete Payment Confirmation Dialog -->
-        <Dialog v-model:visible="deletePaymentDialog" header="Xác nhận xóa" :modal="true" :closable="true" :style="{ width: '450px' }">
-            <div class="p-4">
-                <p>Bạn có chắc chắn muốn xóa khoản thanh toán này?</p>
-                <p class="font-semibold mt-2">Số tiền: {{ paymentToDelete ? formatCurrency(paymentToDelete.amount) : '' }}</p>
-                <p class="font-semibold">Ngày thanh toán: {{ paymentToDelete ? formatDate(paymentToDelete.paymentDate) : '' }}</p>
+        <Dialog v-model:visible="deletePaymentDialog" header="Xác nhận xóa thanh toán" :modal="true" :closable="true" :style="{ width: '450px' }">
+            <div class="flex flex-col gap-4 p-4">
+                <div class="flex items-center gap-2">
+                    <i class="pi pi-exclamation-triangle text-yellow-500 text-2xl"></i>
+                    <span>Bạn có chắc chắn muốn xóa thanh toán này không?</span>
+                </div>
+                <div v-if="paymentToDelete" class="bg-gray-100 p-3 rounded">
+                    <div><strong>Số tiền:</strong> {{ formatCurrency(paymentToDelete.amount) }}</div>
+                    <div><strong>Ngày thanh toán:</strong> {{ formatDate(paymentToDelete.date) }}</div>
+                </div>
             </div>
             <template #footer>
-                <Button label="Không" icon="pi pi-times" text @click="deletePaymentDialog = false" />
-                <Button label="Có, xóa" icon="pi pi-trash" severity="danger" @click="confirmDeletePayment" />
+                <Button label="Hủy" icon="pi pi-times" text @click="deletePaymentDialog = false" />
+                <Button label="Xóa" icon="pi pi-trash" severity="danger" @click="confirmDeletePayment" />
             </template>
         </Dialog>
     </div>
 </template>
-
-<style scoped>
-.card {
-    @apply bg-white rounded-lg shadow-md p-6;
-}
-.pi-file-excel {
-    font-size: 1.5rem;
-}
-</style>
