@@ -1,5 +1,6 @@
 <script setup>
 import DatePicker from 'primevue/calendar';
+import Select from 'primevue/dropdown';
 import InputNumber from 'primevue/inputnumber';
 import InputText from 'primevue/inputtext';
 import Panel from 'primevue/panel';
@@ -66,6 +67,63 @@ const tripData = ref({
     ...props.initialData
 });
 
+// Validation state
+const errors = ref({
+    startingPoint: '',
+    endingPoint: '',
+    distance: '',
+    driverId: '',
+    customerId: '',
+    vehicleId: ''
+});
+
+// Validate the form fields
+const validateForm = () => {
+    // Reset errors
+    errors.value = {
+        startingPoint: '',
+        endingPoint: '',
+        distance: '',
+        driverId: '',
+        customerId: '',
+        vehicleId: ''
+    };
+    
+    let isValid = true;
+    
+    if (!tripData.value.startingPoint) {
+        errors.value.startingPoint = 'Điểm xuất phát là bắt buộc';
+        isValid = false;
+    }
+    
+    if (!tripData.value.endingPoint) {
+        errors.value.endingPoint = 'Điểm đến là bắt buộc';
+        isValid = false;
+    }
+    
+    if (!tripData.value.distance || tripData.value.distance <= 0) {
+        errors.value.distance = 'Quãng đường phải lớn hơn 0';
+        isValid = false;
+    }
+    
+    if (!tripData.value.driverId) {
+        errors.value.driverId = 'Tài xế là bắt buộc';
+        isValid = false;
+    }
+    
+    if (!tripData.value.customerId) {
+        errors.value.customerId = 'Khách hàng là bắt buộc';
+        isValid = false;
+    }
+    
+    if (!tripData.value.vehicleId) {
+        errors.value.vehicleId = 'Biển số xe là bắt buộc';
+        isValid = false;
+    }
+    
+    return isValid;
+};
+
 // Watch for changes in tripData and emit them to parent
 watch(
     tripData,
@@ -77,7 +135,10 @@ watch(
 
 // Emit submit event to parent
 const handleSubmit = () => {
-    emit('submit');
+    const isValid = validateForm();
+    if (isValid) {
+        emit('submit');
+    }
 };
 </script>
 
@@ -95,63 +156,60 @@ const handleSubmit = () => {
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="field">
                     <label for="tripDate">Ngày đi <span class="text-red-500">*</span></label>
-                    <DatePicker id="tripDate" v-model="tripData.tripDate" dateFormat="dd/mm/yy" :showIcon="true" :showButtonBar="true" placeholder="Chọn ngày" :class="{ 'p-invalid': submitted && validationErrors.tripDate }" />
-                    <small v-if="submitted && validationErrors.tripDate" class="p-error">
-                        {{ validationErrors.tripDate }}
-                    </small>
+                    <DatePicker id="tripDate" v-model="tripData.tripDate" dateFormat="dd/mm/yy" :showIcon="true" :showButtonBar="true" placeholder="Chọn ngày" />
                 </div>
                 <div class="field"></div>
                 <div class="field">
                     <label for="startingPoint">Điểm xuất phát <span class="text-red-500">*</span></label>
-                    <InputText id="startingPoint" v-model="tripData.startingPoint" placeholder="Nhập điểm xuất phát" :class="{ 'p-invalid': submitted && validationErrors.startingPoint }" />
-                    <small v-if="submitted && validationErrors.startingPoint" class="p-error">
-                        {{ validationErrors.startingPoint }}
+                    <InputText id="startingPoint" v-model="tripData.startingPoint" placeholder="Nhập điểm xuất phát" :class="{ 'p-invalid': errors.startingPoint }" />
+                    <small v-if="errors.startingPoint" class="p-error">
+                        {{ errors.startingPoint }}
                     </small>
                 </div>
 
                 <div class="field">
                     <label for="endingPoint">Điểm đến <span class="text-red-500">*</span></label>
-                    <InputText id="endingPoint" v-model="tripData.endingPoint" placeholder="Nhập điểm đến" :class="{ 'p-invalid': submitted && validationErrors.endingPoint }" />
-                    <small v-if="submitted && validationErrors.endingPoint" class="p-error">
-                        {{ validationErrors.endingPoint }}
+                    <InputText id="endingPoint" v-model="tripData.endingPoint" placeholder="Nhập điểm đến" :class="{ 'p-invalid': errors.endingPoint }" />
+                    <small v-if="errors.endingPoint" class="p-error">
+                        {{ errors.endingPoint }}
                     </small>
                 </div>
 
                 <div class="field">
                     <label for="distance">Quãng đường (km) <span class="text-red-500">*</span></label>
-                    <InputNumber id="distance" v-model="tripData.distance" placeholder="Nhập quãng đường" :min="1" :class="{ 'p-invalid': submitted && validationErrors.distance }" />
-                    <small v-if="submitted && validationErrors.distance" class="p-error">
-                        {{ validationErrors.distance }}
+                    <InputNumber id="distance" v-model="tripData.distance" placeholder="Nhập quãng đường" :min="1" :class="{ 'p-invalid': errors.distance }" />
+                    <small v-if="errors.distance" class="p-error">
+                        {{ errors.distance }}
                     </small>
                 </div>
 
                 <div class="field">
                     <label for="driverName">Tài xế <span class="text-red-500">*</span></label>
-                    <Select id="driverName" v-model="tripData.driverName" :options="staffList" optionLabel="label" optionValue="value" placeholder="Chọn tài xế" class="w-full" :class="{ 'p-invalid': submitted && validationErrors.driverName }" />
-                    <small class="p-error" v-if="submitted && validationErrors.driverName">
-                        {{ validationErrors.driverName }}
+                    <Select id="driverName" v-model="tripData.driverId" :options="staffList" optionLabel="label" optionValue="value" placeholder="Chọn tài xế" class="w-full" :class="{ 'p-invalid': errors.driverId }" />
+                    <small class="p-error" v-if="errors.driverId">
+                        {{ errors.driverId }}
                     </small>
                 </div>
 
                 <div class="field">
                     <label for="assistantDriverName">Phụ xe</label>
-                    <Select id="assistantDriverName" v-model="tripData.assistantDriverName" :options="staffList" optionLabel="label" optionValue="value" placeholder="Chọn phụ xe" class="w-full" />
+                    <Select id="assistantDriverName" v-model="tripData.assistantId" :options="staffList" optionLabel="label" optionValue="value" placeholder="Chọn phụ xe" class="w-full" />
                 </div>
 
                 <div class="field">
                     <label for="customerName">Khách hàng <span class="text-red-500">*</span></label>
                     <Select
                         id="customerName"
-                        v-model="tripData.customerName"
+                        v-model="tripData.customerId"
                         :options="$props.customerList"
                         optionLabel="label"
                         optionValue="value"
                         placeholder="Chọn khách hàng"
                         class="w-full"
-                        :class="{ 'p-invalid': submitted && validationErrors.customerName }"
+                        :class="{ 'p-invalid': errors.customerId }"
                     />
-                    <small class="p-error" v-if="submitted && validationErrors.customerName">
-                        {{ validationErrors.customerName }}
+                    <small class="p-error" v-if="errors.customerId">
+                        {{ errors.customerId }}
                     </small>
                 </div>
 
@@ -159,15 +217,15 @@ const handleSubmit = () => {
                     <label for="vehicleLicenseNumber">Biển số xe <span class="text-red-500">*</span></label>
                     <Select
                         id="vehicleLicenseNumber"
-                        v-model="tripData.vehicleLicenseNumber"
+                        v-model="tripData.vehicleId"
                         :options="vehicles"
                         optionLabel="label"
                         optionValue="value"
                         placeholder="Chọn xe"
-                        :class="{ 'p-invalid': submitted && validationErrors.vehicleLicenseNumber }"
+                        :class="{ 'p-invalid': errors.vehicleId }"
                     />
-                    <small v-if="submitted && validationErrors.vehicleLicenseNumber" class="p-error">
-                        {{ validationErrors.vehicleLicenseNumber }}
+                    <small v-if="errors.vehicleId" class="p-error">
+                        {{ errors.vehicleId }}
                     </small>
                 </div>
 
@@ -223,5 +281,19 @@ const handleSubmit = () => {
 
 .field label {
     font-weight: 500;
+}
+
+.p-invalid {
+    border-color: #f44336 !important;
+}
+
+:deep(.p-dropdown.p-invalid) {
+    border-color: #f44336 !important;
+}
+
+.p-error {
+    color: #f44336;
+    font-size: 0.75rem;
+    margin-top: 0.25rem;
 }
 </style>

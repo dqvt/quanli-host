@@ -1,6 +1,6 @@
 <script setup>
 import FloatingConfigurator from '@/components/FloatingConfigurator.vue';
-import { useAuthStore } from '@/stores/auth';
+import { useAuthStore } from '@/services/auth';
 import Button from 'primevue/button';
 import Checkbox from 'primevue/checkbox';
 import InputText from 'primevue/inputtext';
@@ -71,6 +71,7 @@ const handleLogin = async () => {
     try {
         await authStore.login(email.value, password.value);
         toast.add({ severity: 'success', summary: 'Đăng nhập thành công', detail: 'Chào mừng bạn quay trở lại!', life: 3000 });
+        console.log('Login successful, redirecting to home page');
         router.push('/');
     } catch (error) {
         console.error('Login error:', error);

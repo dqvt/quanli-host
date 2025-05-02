@@ -1,6 +1,6 @@
 import { supabase } from '@/config/supabase';
 import { onMounted, ref, watch } from 'vue';
-import { calculateAssistantWage, calculateDriverWage, saveWagesForTrip, updateCustomerDebtForTrip } from './wage';
+import { calculateAssistantWage, calculateDriverWage, saveWagesForTrip, updateCustomerDebtForTrip } from './salary';
 
 // Common query selectors for trips with related data
 const TRIP_SELECT_WITH_RELATIONS = `
@@ -171,7 +171,8 @@ export const createTrip = async (tripData) => {
             distance: tripData.distance,
             trip_date: tripData.tripDate ? new Date(tripData.tripDate).toISOString() : null,
             status: tripData.status || 'PENDING',
-            price: tripData.price || 0,
+            price_for_customer: tripData.priceForCustomer || tripData.price || 0,
+            price_for_staff: tripData.priceForStaff || tripData.price || 0,
             expenses: formatExpensesToDatabase(tripData.expenses),
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
@@ -203,12 +204,13 @@ export const createTrip = async (tripData) => {
 export const updateTrip = async (tripId, tripData) => {
     try {
         // Get the current trip status and price before update
-        const { data: currentTrip, error: fetchError } = await supabase.from('trips').select('status, price, driver_id, assistant_id').eq('id', tripId).single();
+        const { data: currentTrip, error: fetchError } = await supabase.from('trips').select('status, price_for_customer, price_for_staff, driver_id, assistant_id').eq('id', tripId).single();
 
         if (fetchError) throw fetchError;
 
         const oldStatus = currentTrip.status;
-        const oldPrice = currentTrip.price;
+        const oldPriceForCustomer = currentTrip.price_for_customer;
+        const oldPriceForStaff = currentTrip.price_for_staff;
         const oldDriverId = currentTrip.driver_id;
         const oldAssistantId = currentTrip.assistant_id;
 
@@ -225,7 +227,13 @@ export const updateTrip = async (tripId, tripData) => {
         if (tripData.distance !== undefined) formattedData.distance = tripData.distance;
         if (tripData.tripDate !== undefined) formattedData.trip_date = tripData.tripDate ? new Date(tripData.tripDate).toISOString() : null;
         if (tripData.status !== undefined) formattedData.status = tripData.status;
-        if (tripData.price !== undefined) formattedData.price = tripData.price || 0;
+        if (tripData.priceForCustomer !== undefined) formattedData.price_for_customer = tripData.priceForCustomer || 0;
+        if (tripData.priceForStaff !== undefined) formattedData.price_for_staff = tripData.priceForStaff || 0;
+        // For backward compatibility
+        if (tripData.price !== undefined && tripData.priceForCustomer === undefined && tripData.priceForStaff === undefined) {
+            formattedData.price_for_customer = tripData.price || 0;
+            formattedData.price_for_staff = tripData.price || 0;
+        }
 
         // Only update expenses if provided
         if (tripData.expenses) {
@@ -241,10 +249,11 @@ export const updateTrip = async (tripId, tripData) => {
 
         // Determine if we need to recalculate wages and update customer debt
         const statusChanged = data.status === 'PRICED' && oldStatus !== 'PRICED';
-        const priceChanged = data.status === 'PRICED' && data.price !== oldPrice;
+        const priceForCustomerChanged = data.status === 'PRICED' && data.price_for_customer !== oldPriceForCustomer;
+        const priceForStaffChanged = data.status === 'PRICED' && data.price_for_staff !== oldPriceForStaff;
         const staffChanged = data.status === 'PRICED' && (data.driver_id !== oldDriverId || data.assistant_id !== oldAssistantId);
 
-        if (statusChanged || priceChanged || staffChanged) {
+        if (statusChanged || priceForCustomerChanged || priceForStaffChanged || staffChanged) {
             await saveWagesForTrip(data);
             await updateCustomerDebtForTrip(data);
         }
@@ -300,22 +309,27 @@ export const approveTrip = async (tripId) => {
 /**
  * Set price for a trip (change status to PRICED)
  * @param {string} tripId - Trip ID
- * @param {number} price - Trip price
+ * @param {number} priceForCustomer - Trip price for customer
+ * @param {number} priceForStaff - Trip price for staff wage calculation (optional, defaults to priceForCustomer)
  * @returns {Promise<Object>} - Updated trip
  */
-export const setPriceForTrip = async (tripId, price) => {
+export const setPriceForTrip = async (tripId, priceForCustomer, priceForStaff = null) => {
     try {
         // Validate price
-        if (!price || price <= 0) {
-            throw new Error('Price must be greater than 0');
+        if (!priceForCustomer || priceForCustomer <= 0) {
+            throw new Error('Price for customer must be greater than 0');
         }
+
+        // If priceForStaff is not provided, use priceForCustomer
+        const finalPriceForStaff = priceForStaff !== null ? priceForStaff : priceForCustomer;
 
         // Get the trip with related data for wage calculation
         const { data, error } = await supabase
             .from('trips')
             .update({
                 status: 'PRICED',
-                price,
+                price_for_customer: priceForCustomer,
+                price_for_staff: finalPriceForStaff,
                 updated_at: new Date().toISOString()
             })
             .eq('id', tripId)
@@ -502,15 +516,15 @@ export const useTripList = (statusFilter = '') => {
     };
 
     // Set price for a trip
-    const handleSetPriced = async (tripId, price) => {
+    const handleSetPriced = async (tripId, priceForCustomer, priceForStaff = null) => {
         try {
             // Validate price
-            if (!price || price <= 0) {
-                throw new Error('Price must be greater than 0');
+            if (!priceForCustomer || priceForCustomer <= 0) {
+                throw new Error('Price for customer must be greater than 0');
             }
 
             // Set price and calculate wages
-            const updatedTrip = await setPriceForTrip(tripId, price);
+            const updatedTrip = await setPriceForTrip(tripId, priceForCustomer, priceForStaff);
 
             // Refresh trip list
             await fetchTrips();
@@ -734,7 +748,7 @@ export const useTripEdit = (tripId) => {
             try {
                 // Call the deleteTrip function directly
                 await supabase.from('trips').delete().eq('id', tripId);
-                window.location.href = '/trip/list';
+                window.location.href = import.meta.env.BASE_URL + 'trip/list';
                 return true;
             } catch (err) {
                 error.value = 'Failed to delete trip';
@@ -744,7 +758,7 @@ export const useTripEdit = (tripId) => {
         updateTrip: async () => {
             const result = await saveTrip();
             if (result) {
-                window.location.href = '/trip/list';
+                window.location.href = import.meta.env.BASE_URL + 'trip/list';
             }
             return result;
         }
@@ -894,12 +908,71 @@ export const useTripAdd = () => {
             staff: fetchStaff,
             customers: fetchCustomers
         },
-        createTrip: async () => {
-            const result = await saveTrip();
-            if (result) {
-                window.location.href = '/trip/list';
+        createTrip: async (successCallback) => {
+            loading.value = true;
+            error.value = null;
+            
+            try {
+                // Client-side validation
+                const validationErrors = {};
+                let isValid = true;
+                
+                if (!trip.value.startingPoint) {
+                    validationErrors.startingPoint = 'Điểm xuất phát là bắt buộc';
+                    isValid = false;
+                }
+                
+                if (!trip.value.endingPoint) {
+                    validationErrors.endingPoint = 'Điểm đến là bắt buộc';
+                    isValid = false;
+                }
+                
+                if (!trip.value.distance || trip.value.distance <= 0) {
+                    validationErrors.distance = 'Quãng đường phải lớn hơn 0';
+                    isValid = false;
+                }
+                
+                if (!trip.value.driverId) {
+                    validationErrors.driverId = 'Tài xế là bắt buộc';
+                    isValid = false;
+                }
+                
+                if (!trip.value.customerId) {
+                    validationErrors.customerId = 'Khách hàng là bắt buộc';
+                    isValid = false;
+                }
+                
+                if (!trip.value.vehicleId) {
+                    validationErrors.vehicleId = 'Biển số xe là bắt buộc';
+                    isValid = false;
+                }
+                
+                // If validation fails, throw error
+                if (!isValid) {
+                    throw new Error('Vui lòng điền đầy đủ thông tin bắt buộc');
+                }
+                
+                const result = await saveTrip();
+                
+                if (result) {
+                    // If a success callback is provided, call it (for public pages)
+                    if (typeof successCallback === 'function') {
+                        successCallback(result);
+                    } else {
+                        // Otherwise, redirect to the trip list page (for authenticated pages)
+                        setTimeout(() => {
+                            window.location.href = import.meta.env.BASE_URL + 'trip/list';
+                        }, 500);
+                    }
+                }
+                return result;
+            } catch (err) {
+                console.error('Error creating trip:', err);
+                error.value = err.message || 'Đã xảy ra lỗi khi lưu chuyến đi';
+                throw err;
+            } finally {
+                loading.value = false;
             }
-            return result;
         }
     };
 };

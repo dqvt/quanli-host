@@ -1,5 +1,5 @@
 <script setup>
-import TripForm from '@/components/TripForm.vue';
+import TripForm from '@/components/trip/TripForm.vue';
 import { useTripAdd } from '@/services/trip';
 import Button from 'primevue/button';
 import { useToast } from 'primevue/usetoast';
@@ -8,15 +8,17 @@ import { onMounted, ref } from 'vue';
 const toast = useToast();
 const successMessage = ref('');
 
-// Use the tripmixin
-const { loading, errorMessage, submitted, validationErrors, tripData, vehicles, staffList, customerList, fetchVehicles, fetchStaffList, fetchCustomers, handleSubmit } = useTripAdd();
+// Use the trip service
+const { loading, errorMessage, submitted, validationErrors, tripData, vehicles, staffList, customerList, fetchData, createTrip } = useTripAdd();
 
 onMounted(async () => {
-    await Promise.all([fetchVehicles(), fetchStaffList(), fetchCustomers()]);
+    await Promise.all([fetchData.vehicles(), fetchData.staff(), fetchData.customers()]);
 });
 
 // Custom success handler for public trip submission
 const handlePublicSuccess = () => {
+    successMessage.value = 'Chuyến đi đã được lưu thành công và đang chờ phê duyệt!';
+    
     toast.add({
         severity: 'success',
         summary: 'Thành công',
@@ -26,12 +28,16 @@ const handlePublicSuccess = () => {
 
     setTimeout(() => {
         window.location.reload();
-    }, 1000);
+    }, 3000);
 };
 
 // Custom submit handler for public trip submission
-const submitPublicTrip = () => {
-    handleSubmit(handlePublicSuccess);
+const handleSubmit = async () => {
+    try {
+        await createTrip(handlePublicSuccess);
+    } catch (error) {
+        console.error("Error creating public trip:", error);
+    }
 };
 
 // Handle cancel - just reset the form instead of navigating
@@ -78,7 +84,7 @@ const handleCancel = () => {
                     {{ successMessage }}
                 </div>
 
-                <TripForm v-model:initialData="tripData" :loading="loading" :submitted="submitted" :validationErrors="validationErrors" :vehicles="vehicles" :staffList="staffList" :customerList="customerList" @submit="submitPublicTrip">
+                <TripForm v-model:initialData="tripData" :loading="loading" :submitted="submitted" :validationErrors="validationErrors" :vehicles="vehicles" :staffList="staffList" :customerList="customerList" @submit="handleSubmit">
                     <template #actions>
                         <div class="flex justify-end gap-2 mt-4">
                             <Button type="button" label="Hủy" @click="handleCancel" class="p-button-secondary" :disabled="loading" />

@@ -119,4 +119,8 @@ function navigateToAddStaff() {
 .card {
     @apply bg-white rounded-lg shadow-md p-6;
 }
+
+.p-invalid {
+    @apply border-red-500;
+}
 </style>

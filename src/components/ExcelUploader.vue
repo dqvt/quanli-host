@@ -2,20 +2,22 @@
     <div class="excel-uploader">
         <div class="flex flex-col gap-4">
             <div class="flex items-center gap-2">
-                <Button type="button" icon="pi pi-upload" label="Chọn file Excel" @click="triggerFileInput" :disabled="loading" />
+                <Button type="button" icon="pi pi-file-excel" label="Chọn file Excel" @click="triggerFileInput" :disabled="loading" />
                 <span v-if="selectedFile" class="text-sm">{{ selectedFile.name }}</span>
                 <input
                     type="file"
                     ref="fileInput"
-                    accept=".xlsx, .xls"
                     class="hidden"
+                    accept=".xlsx, .xls"
                     @change="handleFileChange"
                 />
             </div>
             
-            <div v-if="selectedFile" class="flex items-center gap-2">
-                <Button type="button" icon="pi pi-check" label="Tải lên" @click="uploadFile" :loading="loading" :disabled="loading" />
-                <Button type="button" icon="pi pi-times" label="Hủy" @click="resetFile" :disabled="loading" class="p-button-secondary" />
+            <div v-if="selectedFile" class="flex flex-col gap-2">
+                <div class="flex items-center gap-2 mt-2">
+                    <Button type="button" icon="pi pi-check" label="Nhập dữ liệu" @click="uploadFile" :loading="loading" :disabled="loading" />
+                    <Button type="button" icon="pi pi-times" label="Hủy" @click="resetFile" :disabled="loading" class="p-button-secondary" />
+                </div>
             </div>
             
             <div v-if="error" class="text-red-500 text-sm">
@@ -23,8 +25,13 @@
             </div>
             
             <div v-if="uploadResult" class="bg-green-50 p-4 rounded border border-green-200">
-                <h3 class="text-green-700 font-bold mb-2">Tải lên thành công</h3>
-                <p>Đã tải lên {{ uploadResult.recordsCount }} bản ghi với tổng số tiền {{ formatCurrency(uploadResult.totalAmount) }}</p>
+                <h3 class="text-green-700 font-bold mb-2">Nhập dữ liệu thành công</h3>
+                <p>Đã nhập {{ uploadResult.count }} bản ghi từ file Excel</p>
+                <div v-if="uploadResult.details" class="mt-2">
+                    <div v-for="(detail, index) in uploadResult.details" :key="index" class="text-sm">
+                        {{ detail }}
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -33,8 +40,8 @@
 <script setup>
 import { ref } from 'vue';
 import Button from 'primevue/button';
-import { parseExcelFile } from '@/services/fileUpload';
-import { importDebtFromExcel, formatCurrency } from '@/services/debt';
+import { parseExcelFile } from '@/services/utils/fileUpload';
+import { importDebtFromExcel, formatCurrency } from '@/services/utils/debt';
 
 const props = defineProps({
     customerId: {
@@ -72,7 +79,7 @@ const triggerFileInput = () => {
 const handleFileChange = (event) => {
     const file = event.target.files[0];
     if (file) {
-        // Check if the file is an Excel file
+        // Check if file is Excel
         if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
             error.value = 'Vui lòng chọn file Excel (.xlsx hoặc .xls)';
             return;
@@ -80,70 +87,55 @@ const handleFileChange = (event) => {
         
         selectedFile.value = file;
         error.value = '';
-        uploadResult.value = null;
     }
 };
 
-// Reset the file input
+// Reset file selection
 const resetFile = () => {
     selectedFile.value = null;
-    fileInput.value.value = '';
     error.value = '';
     uploadResult.value = null;
+    if (fileInput.value) {
+        fileInput.value.value = '';
+    }
 };
 
 // Upload and process the Excel file
 const uploadFile = async () => {
     if (!selectedFile.value) {
-        error.value = 'Vui lòng chọn file Excel trước khi tải lên';
+        error.value = 'Vui lòng chọn file Excel để nhập dữ liệu';
         return;
     }
-    
+
     loading.value = true;
     error.value = '';
-    
+
     try {
-        // Parse the Excel file
-        const debtRecords = await parseExcelFile(selectedFile.value);
+        // Parse Excel file
+        const excelData = await parseExcelFile(selectedFile.value);
         
-        if (debtRecords.length === 0) {
-            error.value = 'Không tìm thấy dữ liệu hợp lệ trong file Excel';
-            loading.value = false;
-            return;
-        }
-        
-        // Import the debt records
+        // Import data to database
         const result = await importDebtFromExcel(
-            props.customerId,
+            props.customerId, 
             props.customerName,
             props.representativeName,
-            props.year,
-            debtRecords
+            props.year, 
+            excelData
         );
         
         uploadResult.value = result;
-        
-        // Emit an event to notify the parent component
         emit('upload-complete', result);
         
-        // Reset the file input
-        fileInput.value.value = '';
+        // Reset file selection but keep the result visible
         selectedFile.value = null;
+        if (fileInput.value) {
+            fileInput.value.value = '';
+        }
     } catch (err) {
-        console.error('Error uploading Excel file:', err);
-        error.value = `Lỗi khi tải lên file: ${err.message}`;
+        console.error('Error processing Excel file:', err);
+        error.value = err.message || 'Không thể xử lý file Excel. Vui lòng kiểm tra định dạng file và thử lại.';
     } finally {
         loading.value = false;
     }
 };
 </script>
-
-<style scoped>
-.excel-uploader {
-    margin-bottom: 1rem;
-}
-
-.hidden {
-    display: none;
-}
-</style>

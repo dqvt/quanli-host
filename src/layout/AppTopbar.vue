@@ -1,6 +1,6 @@
 <script setup>
 import { useLayout } from '@/layout/composables/layout';
-import { useAuthStore } from '@/stores/auth';
+import { useAuthStore } from '@/services/auth';
 import { useConfirm } from 'primevue/useconfirm';
 import { useToast } from 'primevue/usetoast';
 import { useRouter } from 'vue-router';

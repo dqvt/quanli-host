@@ -3,10 +3,11 @@
 import { onMounted, ref } from 'vue';
 
 // Service imports
+import { calculateAssistantWage, calculateDriverWage } from '@/services/salary';
 import { calculateTotalExpenses, getStatusSeverity, updateTrip, useTripList, validateDistance } from '@/services/trip';
-import { calculateAssistantWage, calculateDriverWage } from '@/services/wage';
 
 // PrimeVue component imports
+import SearchableSelect from '@/components/ui/SearchableSelect.vue';
 import { InputText } from 'primevue';
 import Button from 'primevue/button';
 import DatePicker from 'primevue/calendar';
@@ -122,6 +123,7 @@ const saveTrip = async (trip) => {
             starting_point: trip.startingPoint,
             ending_point: trip.endingPoint,
             distance: trip.distance,
+            vehicle_id: trip.vehicleId,
             expenses: {
                 police_fee: trip.expenses.policeFee,
                 toll_fee: trip.expenses.tollFee,
@@ -210,19 +212,6 @@ const handleSetPrice = async (tripId) => {
     }
 };
 
-// Debug function to log approved trips
-const logApprovedTrips = () => {
-    console.log('Approved Trips:', approvedTrips.value);
-    console.log('Loading Approved:', loadingApproved.value);
-
-    // Check if there are any trips with WAITING_FOR_PRICE status
-    const waitingForPriceTrips = approvedTrips.value.filter((trip) => trip.status === 'WAITING_FOR_PRICE');
-    console.log('Waiting for price trips:', waitingForPriceTrips);
-
-    // Check if there are any trips with PRICED status
-    const pricedTrips = approvedTrips.value.filter((trip) => trip.status === 'PRICED');
-    console.log('Priced trips:', pricedTrips);
-};
 
 // Fetch data on component mount
 onMounted(async () => {
@@ -235,10 +224,7 @@ onMounted(async () => {
     // Fetch data for approved trips
     await fetchApprovedData.trips();
 
-    // Log approved trips for debugging
-    setTimeout(() => {
-        logApprovedTrips();
-    }, 1000);
+
 });
 </script>
 
@@ -294,7 +280,7 @@ onMounted(async () => {
                         <!-- Vehicle License Number -->
                         <div class="w-[25%]">
                             <span class="font-semibold text-gray-700 mr-2 whitespace-nowrap">Biển số xe:</span>
-                            <Select v-model="vehicleLicenseNumberFilter" :options="vehicleList" optionLabel="label" optionValue="value" placeholder="Chọn biển số xe" class="w-full" :showClear="true" />
+                            <SearchableSelect v-model="vehicleLicenseNumberFilter" :options="vehicleList" optionLabel="label" optionValue="value" placeholder="Chọn biển số xe" class="w-full" :showClear="true" />
                         </div>
                     </div>
 
@@ -345,7 +331,17 @@ onMounted(async () => {
                     </thead>
                     <tbody>
                         <tr v-for="(trip, index) in filteredTrips" :key="trip.id" :class="{ 'bg-yellow-50/30': index % 2 === 0 }" class="border-b border-yellow-100 hover:bg-yellow-50/50 transition-colors">
-                            <td class="px-3 py-2 whitespace-nowrap border-r border-yellow-100" :title="trip.vehicleLicenseNumber">{{ trip.vehicleLicenseNumber }}</td>
+                            <td class="px-3 py-2 border-r border-yellow-100">
+                                <SearchableSelect
+                                    v-model="trip.vehicleId"
+                                    :options="vehicleList"
+                                    optionLabel="label"
+                                    optionValue="value"
+                                    :disabled="!editModeState[trip.id]"
+                                    class="w-full text-xs"
+                                    :placeholder="trip.vehicleLicenseNumber"
+                                />
+                            </td>
                             <td class="px-3 py-2 whitespace-nowrap border-r border-yellow-100" :title="$formatDate(trip.tripDate)">{{ $formatDate(trip.tripDate) }}</td>
 
                             <!-- Editable fields -->
@@ -504,7 +500,17 @@ onMounted(async () => {
                     </thead>
                     <tbody>
                         <tr v-for="(trip, index) in approvedTrips" :key="trip.id" :class="{ 'bg-blue-50/30': index % 2 === 0 }" class="border-b border-blue-100 hover:bg-blue-50/50 transition-colors">
-                            <td class="px-3 py-2 whitespace-nowrap border-r border-blue-100" :title="trip.vehicleLicenseNumber">{{ trip.vehicleLicenseNumber }}</td>
+                            <td class="px-3 py-2 border-r border-blue-100">
+                                <SearchableSelect
+                                    v-model="trip.vehicleId"
+                                    :options="vehicleList"
+                                    optionLabel="label"
+                                    optionValue="value"
+                                    :disabled="true"
+                                    class="w-full text-xs"
+                                    :placeholder="trip.vehicleLicenseNumber"
+                                />
+                            </td>
                             <td class="px-3 py-2 whitespace-nowrap border-r border-blue-100" :title="$formatDate(trip.tripDate)">{{ $formatDate(trip.tripDate) }}</td>
                             <td class="px-3 py-2 whitespace-nowrap border-r border-blue-100" :title="trip.startingPoint">{{ trip.startingPoint }}</td>
                             <td class="px-3 py-2 whitespace-nowrap border-r border-blue-100" :title="trip.endingPoint">{{ trip.endingPoint }}</td>

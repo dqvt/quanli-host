@@ -103,6 +103,8 @@ CREATE TABLE IF NOT EXISTS staff (
         "phone_number": "",
         "relationship": ""
     }'::jsonb,
+    driver_wage_percentage NUMERIC NOT NULL CHECK (driver_wage_percentage > 0 AND driver_wage_percentage <= 100),
+    assistant_wage_percentage NUMERIC NOT NULL CHECK (assistant_wage_percentage > 0 AND assistant_wage_percentage <= 100),
     status VARCHAR(20) DEFAULT 'active',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -135,6 +137,8 @@ COMMENT ON COLUMN staff.vietnam_id IS 'Vietnam national ID number (CCCD)';
 COMMENT ON COLUMN staff.license_number IS 'Driver license number';
 COMMENT ON COLUMN staff.phone_number IS 'Contact phone number';
 COMMENT ON COLUMN staff.emergency_contact IS 'JSON object containing emergency contact details (name, phone_number, relationship)';
+COMMENT ON COLUMN staff.driver_wage_percentage IS 'Percentage of trip price_for_staff to be paid when staff is a driver';
+COMMENT ON COLUMN staff.assistant_wage_percentage IS 'Percentage of trip price_for_staff to be paid when staff is an assistant';
 COMMENT ON COLUMN staff.status IS 'Current status of the staff member (active, inactive)';
 COMMENT ON COLUMN staff.created_at IS 'Timestamp when the record was created';
 COMMENT ON COLUMN staff.updated_at IS 'Timestamp when the record was last updated';
@@ -183,7 +187,8 @@ CREATE TABLE IF NOT EXISTS trips (
     distance NUMERIC,
     trip_date DATE,
     status VARCHAR(20) DEFAULT 'PENDING',
-    price NUMERIC DEFAULT 0,
+    price_for_customer NUMERIC DEFAULT 0,
+    price_for_staff NUMERIC DEFAULT 0,
     expenses JSONB DEFAULT '{
         "police_fee": 0,
         "toll_fee": 0,
@@ -233,7 +238,8 @@ COMMENT ON COLUMN trips.ending_point IS 'Ending location of the trip';
 COMMENT ON COLUMN trips.distance IS 'Distance of the trip';
 COMMENT ON COLUMN trips.trip_date IS 'Date when the trip occurred';
 COMMENT ON COLUMN trips.status IS 'Current status of the trip (PENDING, WAITING_FOR_PRICE, PRICED)';
-COMMENT ON COLUMN trips.price IS 'Price charged for the trip';
+COMMENT ON COLUMN trips.price_for_customer IS 'Price charged for the trip for the customer';
+COMMENT ON COLUMN trips.price_for_staff IS 'Price charged for the trip for the staff';
 COMMENT ON COLUMN trips.expenses IS 'JSON object containing expense details (police_fee, toll_fee, food_fee, gas_money, mechanic_fee)';
 COMMENT ON COLUMN trips.created_at IS 'Timestamp when the record was created';
 COMMENT ON COLUMN trips.updated_at IS 'Timestamp when the record was last updated';
@@ -259,12 +265,12 @@ CREATE INDEX IF NOT EXISTS idx_staff_wages_trip_id ON staff_wages(trip_id);
 CREATE INDEX IF NOT EXISTS idx_staff_wages_staff_id ON staff_wages(staff_id);
 
 -- Add comments to staff_wages table
-COMMENT ON TABLE staff_wages IS 'Stores calculated wages for staff members for each trip';
+COMMENT ON TABLE staff_wages IS 'Stores calculated wages for staff members for each trip based on percentage rates';
 COMMENT ON COLUMN staff_wages.id IS 'Unique identifier for the wage record';
 COMMENT ON COLUMN staff_wages.trip_id IS 'Reference to the trip';
 COMMENT ON COLUMN staff_wages.staff_id IS 'Reference to the staff member';
 COMMENT ON COLUMN staff_wages.role IS 'Role of the staff member in the trip (driver or assistant)';
-COMMENT ON COLUMN staff_wages.amount IS 'Calculated wage amount';
+COMMENT ON COLUMN staff_wages.amount IS 'Calculated wage amount based on trip price_for_staff and role percentage rate';
 COMMENT ON COLUMN staff_wages.notes IS 'Optional notes about the calculation';
 COMMENT ON COLUMN staff_wages.created_at IS 'Timestamp when the record was created';
 COMMENT ON COLUMN staff_wages.updated_at IS 'Timestamp when the record was last updated';
@@ -351,7 +357,8 @@ SELECT
     t.distance,
     t.trip_date,
     t.status,
-    t.price,
+    t.price_for_customer,
+    t.price_for_staff,
     t.expenses,
     (COALESCE((t.expenses->>'police_fee')::numeric, 0) + 
      COALESCE((t.expenses->>'toll_fee')::numeric, 0) + 
@@ -429,21 +436,8 @@ SELECT
     EXTRACT(YEAR FROM t.trip_date) AS year,
     EXTRACT(MONTH FROM t.trip_date) AS month,
     COUNT(t.id) AS trip_count,
-    SUM(t.price) AS total_price,
-    SUM(
-        COALESCE((t.expenses->>'police_fee')::numeric, 0) + 
-        COALESCE((t.expenses->>'toll_fee')::numeric, 0) + 
-        COALESCE((t.expenses->>'food_fee')::numeric, 0) + 
-        COALESCE((t.expenses->>'gas_money')::numeric, 0) + 
-        COALESCE((t.expenses->>'mechanic_fee')::numeric, 0)
-    ) AS total_expenses,
-    SUM(t.price) - SUM(
-        COALESCE((t.expenses->>'police_fee')::numeric, 0) + 
-        COALESCE((t.expenses->>'toll_fee')::numeric, 0) + 
-        COALESCE((t.expenses->>'food_fee')::numeric, 0) + 
-        COALESCE((t.expenses->>'gas_money')::numeric, 0) + 
-        COALESCE((t.expenses->>'mechanic_fee')::numeric, 0)
-    ) AS profit
+    SUM(t.price_for_customer) AS total_price,
+    SUM(t.price_for_customer) AS profit
 FROM 
     customers c
 LEFT JOIN 
@@ -497,3 +491,34 @@ ORDER BY
     c.company_name;
 
 COMMENT ON VIEW customer_balance IS 'View that provides overall balance for each customer (debt minus payments)';
+
+-- Update staff_wages table comment
+COMMENT ON TABLE staff_wages IS 'Stores calculated wages for staff members for each trip based on percentage rates';
+
+-- Update staff_wages amount column comment
+COMMENT ON COLUMN staff_wages.amount IS 'Calculated wage amount based on trip price_for_staff and role percentage rate';
+
+-- Update staff_wages table to include calculated amount
+CREATE OR REPLACE FUNCTION calculate_staff_wage()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Calculate the wage amount based on staff role-specific wage percentage and trip price_for_staff
+    SELECT (
+        CASE 
+            WHEN NEW.role = 'driver' THEN s.driver_wage_percentage
+            WHEN NEW.role = 'assistant' THEN s.assistant_wage_percentage
+        END * t.price_for_staff / 100
+    ) INTO NEW.amount
+    FROM trips t
+    JOIN staff s ON s.id = NEW.staff_id
+    WHERE t.id = NEW.trip_id;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger to automatically calculate wage amount
+CREATE TRIGGER calculate_staff_wage_trigger
+    BEFORE INSERT OR UPDATE ON staff_wages
+    FOR EACH ROW
+    EXECUTE FUNCTION calculate_staff_wage();

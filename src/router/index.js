@@ -1,5 +1,5 @@
 import AppLayout from '@/layout/AppLayout.vue';
-import { useAuthStore } from '@/stores/auth';
+import { useAuthStore } from '@/services/auth';
 import { createRouter, createWebHistory } from 'vue-router';
 
 const router = createRouter({
@@ -7,16 +7,15 @@ const router = createRouter({
     routes: [
         {
             path: '/',
-            redirect: '/rules'
-        },
-        {
-            path: '/',
             component: AppLayout,
             meta: { requiresAuth: true },
             children: [
-                // Rules page
                 {
-                    path: '/rules',
+                    path: '',
+                    redirect: 'rules' // Remove leading slash to make it relative
+                },
+                {
+                    path: 'rules',
                     name: 'Rules',
                     component: () => import('@/components/Rules.vue')
                 },
@@ -25,13 +24,12 @@ const router = createRouter({
                 {
                     path: '/trip/list',
                     name: 'TripList',
-                    component: () => import('@/components/TripList.vue')
+                    component: () => import('@/components/trip/List.vue')
                 },
-
                 {
                     path: '/trip/add',
                     name: 'TripAdd',
-                    component: () => import('@/components/TripAdd.vue'),
+                    component: () => import('@/components/trip/Add.vue'),
                     beforeEnter: (_, from, next) => {
                         // Only allow access if coming from the trip list page
                         if (from.path === '/trip/list') {
@@ -45,11 +43,10 @@ const router = createRouter({
                         }
                     }
                 },
-
                 {
                     path: '/trip/edit/:id',
                     name: 'TripEdit',
-                    component: () => import('@/components/TripEdit.vue')
+                    component: () => import('@/components/trip/Edit.vue')
                 },
 
                 // Expense routes have been removed
@@ -58,18 +55,16 @@ const router = createRouter({
                 {
                     path: '/customer/list',
                     name: 'CustomerList',
-                    component: () => import('@/components/CustomerList.vue')
+                    component: () => import('@/components/customer/List.vue')
                 },
                 {
                     path: '/customer/add',
                     name: 'CustomerAdd',
-                    component: () => import('@/components/CustomerAdd.vue'),
+                    component: () => import('@/components/customer/Add.vue'),
                     beforeEnter: (_, from, next) => {
-                        // Only allow access if coming from the customer list page
                         if (from.path === '/customer/list') {
                             next();
                         } else {
-                            // Redirect to customer list page with a notification
                             next({
                                 path: '/customer/list',
                                 query: { redirected: 'true' }
@@ -80,8 +75,23 @@ const router = createRouter({
                 {
                     path: '/customer/edit/:id',
                     name: 'CustomerEdit',
-                    component: () => import('@/components/CustomerEdit.vue'),
+                    component: () => import('@/components/customer/Edit.vue'),
                     meta: { requiresAuth: true }
+                },
+                {
+                    path: '/customer/debt',
+                    name: 'CustomerDebtList',
+                    component: () => import('@/components/customer/DebtList.vue')
+                },
+                {
+                    path: '/customer/debt/:id',
+                    name: 'CustomerDebtDetail',
+                    component: () => import('@/components/customer/DebtDetail.vue')
+                },
+                {
+                    path: '/customer/trips/:id',
+                    name: 'CustomerTripList',
+                    component: () => import('@/components/customer/TripList.vue')
                 },
 
                 // Staff routes
@@ -126,12 +136,12 @@ const router = createRouter({
                 {
                     path: '/vehicle/list',
                     name: 'VehicleList',
-                    component: () => import('@/components/VehicleList.vue')
+                    component: () => import('@/components/vehicle/List.vue')
                 },
                 {
                     path: '/vehicle/add',
                     name: 'VehicleAdd',
-                    component: () => import('@/components/VehicleAdd.vue'),
+                    component: () => import('@/components/vehicle/Add.vue'),
                     beforeEnter: (_, from, next) => {
                         // Only allow access if coming from the vehicle list page
                         if (from.path === '/vehicle/list') {
@@ -148,23 +158,7 @@ const router = createRouter({
                 {
                     path: '/vehicle/edit/:id',
                     name: 'VehicleEdit',
-                    component: () => import('@/components/VehicleEdit.vue')
-                },
-                // Customer Debt routes
-                {
-                    path: '/customer/debt',
-                    name: 'CustomerDebtList',
-                    component: () => import('@/components/CustomerDebtList.vue')
-                },
-                {
-                    path: '/customer/debt/:id',
-                    name: 'CustomerDebtDetail',
-                    component: () => import('@/components/CustomerDebtDetail.vue')
-                },
-                {
-                    path: '/customer/trips/:id',
-                    name: 'CustomerTripList',
-                    component: () => import('@/components/CustomerTripList.vue')
+                    component: () => import('@/components/vehicle/Edit.vue')
                 }
             ]
         },
@@ -192,8 +186,45 @@ const router = createRouter({
             path: '/auth/error',
             name: 'Error',
             component: () => import('@/components/auth/Error.vue')
+        },
+        // Catch-all route for unknown URLs
+        {
+            path: '/:pathMatch(.*)*',
+            name: 'NotFound',
+            component: () => import('@/components/Rules.vue'),
+            meta: { requiresAuth: true },
+            beforeEnter: (to, _from, next) => {
+                console.log('NotFound component route triggered for:', to.path);
+                next();
+            }
         }
     ]
+});
+
+// Add a specific navigation guard for handling unknown URLs - this must be first
+router.beforeEach((to, _from, next) => {
+    // Log all navigation for debugging
+    console.log('Navigation to:', to.path, 'Route name:', to.name, 'Matched routes:', to.matched.length);
+
+    // Check if this is a direct access to an unknown URL (not caught by the catch-all route)
+    // This can happen with certain URL patterns or when the router is not fully initialized
+    if (to.matched.length === 0) {
+        console.log('CRITICAL: No matching route found for:', to.path);
+        const authStore = useAuthStore();
+
+        // Force redirect to Rules or Login based on authentication
+        if (!authStore.loading && authStore.isAuthenticated) {
+            console.log('User is authenticated, redirecting to Rules');
+            next({ name: 'Rules' });
+        } else {
+            console.log('User is not authenticated or still loading, redirecting to Login');
+            next({ name: 'Login' });
+        }
+        return;
+    }
+
+    // Continue with normal navigation
+    next();
 });
 
 // Navigation guard for trip edit/add pages
@@ -228,6 +259,16 @@ router.beforeEach((to, _from, next) => {
     }
 
     function checkAuth() {
+        // Handle NotFound route - add authentication requirement
+        if (to.name === 'NotFound') {
+            console.log('NotFound route detected in auth guard');
+            if (!authStore.isAuthenticated) {
+                console.log('User not authenticated, redirecting to Login');
+                next({ name: 'Login' });
+                return;
+            }
+        }
+
         if (to.matched.some((record) => record.meta.requiresAuth)) {
             if (!authStore.isAuthenticated) {
                 next({ name: 'Login', query: { redirect: to.fullPath } });
@@ -236,6 +277,7 @@ router.beforeEach((to, _from, next) => {
             }
         } else {
             if (authStore.isAuthenticated && to.name === 'Login') {
+                console.log('User is authenticated and trying to access login page, redirecting to Rules');
                 next({ name: 'Rules' });
             } else {
                 next();

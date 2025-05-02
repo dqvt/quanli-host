@@ -7,6 +7,8 @@ import Card from 'primevue/card';
 import Column from 'primevue/column';
 import DataTable from 'primevue/datatable';
 import ProgressSpinner from 'primevue/progressspinner';
+import TabPanel from 'primevue/tabpanel';
+import TabView from 'primevue/tabview';
 import { useToast } from 'primevue/usetoast';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -20,9 +22,9 @@ const trips = ref([]);
 const loading = ref(false);
 const confirmDebtDialog = ref(false);
 const currentYear = new Date().getFullYear();
-const expandedMonths = ref({});
+const activeTab = ref(0);
 
-// Function to group trips by month
+// Function to group trips by month and year
 const groupTripsByMonth = (trips) => {
     const groupedTrips = {};
 
@@ -86,24 +88,8 @@ const monthlyTrips = computed(() => {
     return groupTripsByMonth(trips.value);
 });
 
-// Toggle month expansion
-function toggleMonthExpansion(monthKey) {
-    expandedMonths.value[monthKey] = !expandedMonths.value[monthKey];
-}
-
-// Initialize expanded state for all months
-function initializeExpandedMonths() {
-    const months = groupTripsByMonth(trips.value);
-    months.forEach((month, index) => {
-        // Expand only the first month by default
-        expandedMonths.value[`${month.year}-${month.month.toString().padStart(2, '0')}`] = index === 0;
-    });
-}
-
 onMounted(async () => {
     await fetchData();
-    // Initialize expanded months after data is loaded
-    initializeExpandedMonths();
 });
 
 async function fetchData() {
@@ -208,9 +194,6 @@ async function fetchCustomerTrips() {
             const dateB = b.tripDate ? new Date(b.tripDate) : new Date(0);
             return dateB - dateA;
         });
-
-        // Initialize expanded months after trips are loaded
-        initializeExpandedMonths();
     } catch (error) {
         console.error('Error fetching trips:', error);
         throw error;
@@ -343,99 +326,93 @@ function goBack() {
                 </Card>
             </div>
 
-            <!-- Trips grouped by month -->
+            <!-- Trips in tabs -->
             <div v-if="monthlyTrips.length > 0">
-                <div v-for="month in monthlyTrips" :key="`${month.year}-${month.month}`" class="mb-4">
-                    <!-- Month header with toggle -->
-                    <div class="flex justify-between items-center p-3 bg-blue-50 rounded-t-lg border border-blue-200 cursor-pointer" @click="toggleMonthExpansion(`${month.year}-${month.month.toString().padStart(2, '0')}`)">
-                        <div class="flex items-center">
-                            <i :class="expandedMonths[`${month.year}-${month.month.toString().padStart(2, '0')}`] ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" class="mr-2"></i>
-                            <span class="font-bold text-lg">{{ month.displayName }}</span>
-                        </div>
-                        <div class="flex gap-4">
-                            <div class="text-right">
-                                <div class="text-sm text-gray-600">Tổng chi phí</div>
-                                <div class="font-semibold text-orange-500">{{ formatCurrency(month.totalExpenses) }}</div>
-                            </div>
-                            <div class="text-right">
-                                <div class="text-sm text-gray-600">Tổng giá trị</div>
-                                <div class="font-semibold text-blue-600">{{ formatCurrency(month.totalPrice) }}</div>
-                            </div>
-                            <div class="text-right">
-                                <div class="text-sm text-gray-600">Lợi nhuận</div>
-                                <div class="font-semibold" :class="month.totalPrice - month.totalExpenses >= 0 ? 'text-green-600' : 'text-red-600'">
-                                    {{ formatCurrency(month.totalPrice - month.totalExpenses) }}
+                <TabView v-model:activeIndex="activeTab">
+                    <TabPanel v-for="month in monthlyTrips" :key="`${month.year}-${month.month}`" :header="month.displayName">
+                        <div class="mb-4">
+                            <div class="flex justify-end gap-4 mb-4">
+                                <div class="text-right">
+                                    <div class="text-sm text-gray-600">Tổng chi phí</div>
+                                    <div class="font-semibold text-orange-500">{{ formatCurrency(month.totalExpenses) }}</div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-sm text-gray-600">Tổng giá trị</div>
+                                    <div class="font-semibold text-blue-600">{{ formatCurrency(month.totalPrice) }}</div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-sm text-gray-600">Lợi nhuận</div>
+                                    <div class="font-semibold" :class="month.totalPrice - month.totalExpenses >= 0 ? 'text-green-600' : 'text-red-600'">
+                                        {{ formatCurrency(month.totalPrice - month.totalExpenses) }}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    </div>
 
-                    <!-- Month trips table (collapsible) -->
-                    <div v-if="expandedMonths[`${month.year}-${month.month.toString().padStart(2, '0')}`]" class="border border-t-0 border-gray-200 rounded-b-lg">
-                        <DataTable
-                            :value="month.trips"
-                            :paginator="true"
-                            :rows="10"
-                            :rowsPerPageOptions="[5, 10, 20, 50]"
-                            responsiveLayout="scroll"
-                            class="p-datatable-sm"
-                            :sortField="'tripDate'"
-                            :sortOrder="-1"
-                            scrollable
-                            scrollHeight="400px"
-                            size="small"
-                            stripedRows
-                        >
-                            <Column field="tripDate" header="Ngày đi" sortable style="min-width: 100px; max-width: 120px">
-                                <template #body="{ data }">
-                                    {{ formatDate(data.tripDate) }}
-                                </template>
-                            </Column>
-                            <Column field="vehicleLicenseNumber" header="Biển số xe" sortable style="min-width: 100px; max-width: 120px"></Column>
-                            <Column field="startingPoint" header="Điểm đi" sortable style="min-width: 150px; max-width: 200px">
-                                <template #body="{ data }">
-                                    <div class="truncate-text" :title="data.startingPoint">{{ data.startingPoint }}</div>
-                                </template>
-                            </Column>
-                            <Column field="endingPoint" header="Điểm đến" sortable style="min-width: 150px; max-width: 200px">
-                                <template #body="{ data }">
-                                    <div class="truncate-text" :title="data.endingPoint">{{ data.endingPoint }}</div>
-                                </template>
-                            </Column>
-                            <Column field="distance" header="Khoảng cách" sortable style="min-width: 80px; max-width: 100px">
-                                <template #body="{ data }"> {{ data.distance || 0 }} km </template>
-                            </Column>
-                            <Column field="expenses" header="Chi phí" sortable style="min-width: 120px; max-width: 140px">
-                                <template #body="{ data }">
-                                    {{ formatCurrency(calculateTotalExpensesValue(data.expenses)) }}
-                                </template>
-                            </Column>
-                            <Column field="price" header="Giá chuyến" sortable style="min-width: 120px; max-width: 140px">
-                                <template #body="{ data }">
-                                    {{ formatCurrency(data.price || 0) }}
-                                </template>
-                            </Column>
-                            <Column field="status" header="Trạng thái" sortable style="min-width: 100px; max-width: 120px">
-                                <template #body="{ data }">
-                                    <Tag
-                                        :value="data.status === 'PENDING' ? 'Chờ duyệt' : data.status === 'WAITING_FOR_PRICE' ? 'Chờ báo giá' : 'Đã báo giá'"
-                                        :severity="data.status === 'PENDING' ? 'info' : data.status === 'WAITING_FOR_PRICE' ? 'warning' : 'success'"
-                                    />
-                                </template>
-                            </Column>
-                            <Column field="createdAt" header="Ngày tạo" sortable style="min-width: 100px; max-width: 120px">
-                                <template #body="{ data }">
-                                    {{ formatTimestamp(data.createdAt) }}
-                                </template>
-                            </Column>
-                            <Column header="Thao tác" style="min-width: 100px; max-width: 120px">
-                                <template #body="slotProps">
-                                    <Button label="Chi tiết" size="small" class="p-button-sm" @click="router.push(`/trip/edit/${slotProps.data.id}`)" />
-                                </template>
-                            </Column>
-                        </DataTable>
-                    </div>
-                </div>
+                            <DataTable
+                                :value="month.trips"
+                                :paginator="true"
+                                :rows="10"
+                                :rowsPerPageOptions="[5, 10, 20, 50]"
+                                responsiveLayout="scroll"
+                                class="p-datatable-sm"
+                                :sortField="'tripDate'"
+                                :sortOrder="-1"
+                                scrollable
+                                scrollHeight="400px"
+                                size="small"
+                                stripedRows
+                            >
+                                <Column field="tripDate" header="Ngày đi" sortable style="min-width: 100px; max-width: 120px">
+                                    <template #body="{ data }">
+                                        {{ formatDate(data.tripDate) }}
+                                    </template>
+                                </Column>
+                                <Column field="vehicleLicenseNumber" header="Biển số xe" sortable style="min-width: 100px; max-width: 120px"></Column>
+                                <Column field="startingPoint" header="Điểm đi" sortable style="min-width: 150px; max-width: 200px">
+                                    <template #body="{ data }">
+                                        <div class="truncate-text" :title="data.startingPoint">{{ data.startingPoint }}</div>
+                                    </template>
+                                </Column>
+                                <Column field="endingPoint" header="Điểm đến" sortable style="min-width: 150px; max-width: 200px">
+                                    <template #body="{ data }">
+                                        <div class="truncate-text" :title="data.endingPoint">{{ data.endingPoint }}</div>
+                                    </template>
+                                </Column>
+                                <Column field="distance" header="Khoảng cách" sortable style="min-width: 80px; max-width: 100px">
+                                    <template #body="{ data }"> {{ data.distance || 0 }} km </template>
+                                </Column>
+                                <Column field="expenses" header="Chi phí" sortable style="min-width: 120px; max-width: 140px">
+                                    <template #body="{ data }">
+                                        {{ formatCurrency(calculateTotalExpensesValue(data.expenses)) }}
+                                    </template>
+                                </Column>
+                                <Column field="price" header="Giá chuyến" sortable style="min-width: 120px; max-width: 140px">
+                                    <template #body="{ data }">
+                                        {{ formatCurrency(data.price || 0) }}
+                                    </template>
+                                </Column>
+                                <Column field="status" header="Trạng thái" sortable style="min-width: 100px; max-width: 120px">
+                                    <template #body="{ data }">
+                                        <Tag
+                                            :value="data.status === 'PENDING' ? 'Chờ duyệt' : data.status === 'WAITING_FOR_PRICE' ? 'Chờ báo giá' : 'Đã báo giá'"
+                                            :severity="data.status === 'PENDING' ? 'info' : data.status === 'WAITING_FOR_PRICE' ? 'warning' : 'success'"
+                                        />
+                                    </template>
+                                </Column>
+                                <Column field="createdAt" header="Ngày tạo" sortable style="min-width: 100px; max-width: 120px">
+                                    <template #body="{ data }">
+                                        {{ formatTimestamp(data.createdAt) }}
+                                    </template>
+                                </Column>
+                                <Column header="Thao tác" style="min-width: 100px; max-width: 120px">
+                                    <template #body="slotProps">
+                                        <Button label="Chi tiết" size="small" class="p-button-sm" @click="router.push(`/trip/edit/${slotProps.data.id}`)" />
+                                    </template>
+                                </Column>
+                            </DataTable>
+                        </div>
+                    </TabPanel>
+                </TabView>
             </div>
 
             <!-- Empty state -->
@@ -448,18 +425,8 @@ function goBack() {
 </template>
 
 <style scoped>
-.card {
-    background-color: white;
-    border-radius: 0.5rem;
-    box-shadow:
-        0 4px 6px -1px rgba(0, 0, 0, 0.1),
-        0 2px 4px -1px rgba(0, 0, 0, 0.06);
-    padding: 1.5rem;
-}
-
-/* Month header hover effect */
-.bg-blue-50:hover {
-    background-color: #e6f0ff;
+.p-invalid {
+    @apply border-red-500;
 }
 
 /* Truncate text in table cells */
@@ -496,5 +463,19 @@ function goBack() {
 :deep(.p-tag) {
     font-size: 0.75rem;
     padding: 0.25rem 0.5rem;
+}
+
+/* Tab styling */
+:deep(.p-tabview-nav) {
+    border-bottom: 1px solid #e5e7eb;
+}
+
+:deep(.p-tabview-nav-link) {
+    padding: 1rem 1.5rem;
+}
+
+:deep(.p-tabview-selected) {
+    background-color: #f8f9fa;
+    border-color: #e5e7eb;
 }
 </style>

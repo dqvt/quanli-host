@@ -211,14 +211,11 @@ const deleteCustomer = async () => {
 </template>
 <style scoped>
 .p-invalid {
-    border-color: #ef4444;
+    @apply border-red-500;
 }
-.card {
-    background-color: white;
-    border-radius: 0.5rem;
-    box-shadow:
-        0 4px 6px -1px rgba(0, 0, 0, 0.1),
-        0 2px 4px -1px rgba(0, 0, 0, 0.06);
-    padding: 1.5rem;
+
+.required:after {
+    content: " *";
+    color: red;
 }
 </style>

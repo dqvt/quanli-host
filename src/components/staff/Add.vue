@@ -1,5 +1,7 @@
 <script setup>
 import { supabase } from '@/config/supabase';
+import { useVuelidate } from '@vuelidate/core';
+import { maxValue, minValue, numeric, required } from '@vuelidate/validators';
 import Button from 'primevue/button';
 import DatePicker from 'primevue/calendar';
 import InputText from 'primevue/inputtext';
@@ -23,82 +25,74 @@ const staffData = ref({
         phoneNumber: '',
         relationship: ''
     },
-    createdAt: null
+    createdAt: null,
+    driverWagePercentage: '',
+    assistantWagePercentage: ''
 });
 
 const loading = ref(false);
 const errorMessage = ref('');
 const submitted = ref(false);
 
+const rules = {
+    staffData: {
+        driverWagePercentage: { 
+            required,
+            numeric,
+            minValue: minValue(0),
+            maxValue: maxValue(100)
+        },
+        assistantWagePercentage: { 
+            required,
+            numeric,
+            minValue: minValue(0),
+            maxValue: maxValue(100)
+        }
+    }
+};
+
+const v$ = useVuelidate(rules, { staffData });
+
 const validateForm = () => {
     submitted.value = true;
-    const errors = [];
-
-    if (!staffData.value.fullName.trim()) {
-        errors.push('Vui lòng nhập họ và tên');
-    }
-    if (!staffData.value.shortName.trim()) {
-        errors.push('Vui lòng nhập tên ngắn');
-    }
-    if (!staffData.value.phoneNumber.trim()) {
-        errors.push('Vui lòng nhập số điện thoại');
-    }
-
-    if (errors.length > 0) {
-        errorMessage.value = errors.join(', ');
-        return false;
-    }
-
-    return true;
+    return !v$.value.$invalid;
 };
 
 const saveStaff = async () => {
     if (!validateForm()) {
-        loading.value = false;
         return;
     }
 
-    loading.value = true;
-    errorMessage.value = '';
-
     try {
-        // Convert camelCase to snake_case for database
-        const staffDataToSave = {
-            full_name: staffData.value.fullName,
-            short_name: staffData.value.shortName,
-            dob: staffData.value.dob,
-            vietnam_id: staffData.value.vietnamId,
-            license_number: staffData.value.licenseNumber,
-            phone_number: staffData.value.phoneNumber,
-            emergency_contact: {
-                name: staffData.value.emergencyContact.name,
-                phone_number: staffData.value.emergencyContact.phoneNumber,
-                relationship: staffData.value.emergencyContact.relationship
-            },
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            status: 'active'
-        };
-
-        const { data, error } = await supabase.from('staff').insert(staffDataToSave).select().single();
+        loading.value = true;
+        const { data, error } = await supabase
+            .from('staff')
+            .insert([
+                {
+                    full_name: staffData.value.fullName,
+                    short_name: staffData.value.shortName,
+                    dob: staffData.value.dob,
+                    vietnam_id: staffData.value.vietnamId,
+                    license_number: staffData.value.licenseNumber,
+                    phone_number: staffData.value.phoneNumber,
+                    emergency_contact: staffData.value.emergencyContact,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    status: 'active',
+                    driver_wage_percentage: parseFloat(staffData.value.driverWagePercentage),
+                    assistant_wage_percentage: parseFloat(staffData.value.assistantWagePercentage)
+                }
+            ])
+            .select();
 
         if (error) throw error;
 
-        console.log('Lưu thông tin nhân viên thành công với ID:', data.id);
-
-        // Show success notification
-        toast.add({
-            severity: 'success',
-            summary: 'Thành công',
-            detail: 'Đã lưu thông tin nhân viên',
-            life: 3000
-        });
-
-        // Navigate back to staff list page immediately
+        toast.add({ severity: 'success', summary: 'Thành công', detail: 'Nhân viên đã được thêm', life: 3000 });
         router.push('/staff/list');
     } catch (error) {
-        console.error('Lỗi khi lưu thông tin nhân viên:', error);
-        errorMessage.value = 'Không thể lưu thông tin nhân viên. Vui lòng thử lại.';
+        console.error('Error adding staff:', error);
+        errorMessage.value = error.message;
+        toast.add({ severity: 'error', summary: 'Lỗi', detail: error.message, life: 3000 });
     } finally {
         loading.value = false;
     }
@@ -117,7 +111,9 @@ const resetForm = () => {
             phoneNumber: '',
             relationship: ''
         },
-        createdAt: null
+        createdAt: null,
+        driverWagePercentage: '',
+        assistantWagePercentage: ''
     };
     submitted.value = false;
     errorMessage.value = '';
@@ -126,7 +122,7 @@ const resetForm = () => {
 
 <template>
     <div class="card">
-        <h2 class="text-2xl font-bold mb-4">Thêm Thông Tin Nhân Viên</h2>
+        <h2 class="text-2xl font-bold mb-4">Thêm nhân viên mới</h2>
 
         <div v-if="errorMessage" class="p-4 mb-4 bg-red-100 text-red-700 rounded">
             {{ errorMessage }}
@@ -134,11 +130,7 @@ const resetForm = () => {
 
         <form @submit.prevent="saveStaff" class="flex flex-col gap-4">
             <!-- Basic Information Panel -->
-            <Panel>
-                <template #header>
-                    <span class="font-bold">Thông tin cơ bản</span>
-                </template>
-
+            <Panel header="Thông tin cá nhân" class="mb-4">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="flex flex-col gap-2">
                         <label for="fullName">Họ và tên <span class="text-red-500">*</span></label>
@@ -163,11 +155,7 @@ const resetForm = () => {
             </Panel>
 
             <!-- Documents Panel -->
-            <Panel>
-                <template #header>
-                    <span class="font-bold">Giấy tờ</span>
-                </template>
-
+            <Panel header="Giấy tờ">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="flex flex-col gap-2">
                         <label for="vietnamId">Số CCCD/CMND</label>
@@ -182,11 +170,7 @@ const resetForm = () => {
             </Panel>
 
             <!-- Emergency Contact Panel -->
-            <Panel>
-                <template #header>
-                    <span class="font-bold">Thông tin liên hệ khẩn cấp</span>
-                </template>
-
+            <Panel header="Thông tin liên hệ khẩn cấp">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="flex flex-col gap-2">
                         <label for="emergencyName">Tên người liên hệ</label>
@@ -204,7 +188,37 @@ const resetForm = () => {
                     </div>
                 </div>
             </Panel>
+            <Panel header="Thông tin lương">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="flex flex-col gap-2">
+                        <label for="driverWagePercentage" class="required">Phần trăm lương tài xế</label>
+                        <InputText 
+                            id="driverWagePercentage" 
+                            v-model="staffData.driverWagePercentage" 
+                            placeholder="Nhập phần trăm lương tài xế"
+                            :class="{ 'p-invalid': v$.staffData.driverWagePercentage.$invalid && v$.staffData.driverWagePercentage.$dirty }"
+                            required
+                        />
+                        <small class="p-error" v-if="v$.staffData.driverWagePercentage.$invalid && v$.staffData.driverWagePercentage.$dirty">
+                            Phần trăm lương tài xế là bắt buộc
+                        </small>
+                    </div>
 
+                    <div class="flex flex-col gap-2">
+                        <label for="assistantWagePercentage" class="required">Phần trăm lương phụ xe</label>
+                        <InputText 
+                            id="assistantWagePercentage" 
+                            v-model="staffData.assistantWagePercentage" 
+                            placeholder="Nhập phần trăm lương phụ xe"
+                            :class="{ 'p-invalid': v$.staffData.assistantWagePercentage.$invalid && v$.staffData.assistantWagePercentage.$dirty }"
+                            required
+                        />
+                        <small class="p-error" v-if="v$.staffData.assistantWagePercentage.$invalid && v$.staffData.assistantWagePercentage.$dirty">
+                            Phần trăm lương phụ xe là bắt buộc
+                        </small>
+                    </div>
+                </div>
+            </Panel>
             <div class="flex justify-end gap-2 mt-4">
                 <Button type="button" label="Hủy" severity="secondary" outlined @click="router.push('/staff/list')" />
                 <Button type="submit" label="Lưu" icon="pi pi-save" :loading="loading" />
@@ -218,7 +232,8 @@ const resetForm = () => {
     @apply border-red-500;
 }
 
-.card {
-    @apply bg-white rounded-lg shadow-md p-6;
+.required:after {
+    content: " *";
+    color: red;
 }
 </style>

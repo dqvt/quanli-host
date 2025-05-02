@@ -43,7 +43,7 @@
 import { ref } from 'vue';
 import Button from 'primevue/button';
 import Textarea from 'primevue/textarea';
-import { uploadDebtFile } from '@/services/fileUpload';
+import { uploadDebtFile } from '@/services/utils/fileUpload';
 
 const props = defineProps({
     customerId: {
@@ -76,50 +76,43 @@ const handleFileChange = (event) => {
     if (file) {
         selectedFile.value = file;
         error.value = '';
-        uploadResult.value = null;
     }
 };
 
-// Reset the file input
+// Reset file selection
 const resetFile = () => {
     selectedFile.value = null;
     notes.value = '';
-    fileInput.value.value = '';
     error.value = '';
     uploadResult.value = null;
+    if (fileInput.value) {
+        fileInput.value.value = '';
+    }
 };
 
 // Upload the file
 const uploadFile = async () => {
     if (!selectedFile.value) {
-        error.value = 'Vui lòng chọn file trước khi tải lên';
+        error.value = 'Vui lòng chọn file để tải lên';
         return;
     }
-    
+
     loading.value = true;
     error.value = '';
-    
+
     try {
-        // Upload the file
-        const result = await uploadDebtFile(
-            selectedFile.value,
-            props.customerId,
-            props.year,
-            notes.value
-        );
-        
+        const result = await uploadDebtFile(props.customerId, props.year, selectedFile.value, notes.value);
         uploadResult.value = result;
-        
-        // Emit an event to notify the parent component
         emit('upload-complete', result);
-        
-        // Reset the file input but keep the result visible
-        fileInput.value.value = '';
+        // Reset file selection but keep the result visible
         selectedFile.value = null;
         notes.value = '';
+        if (fileInput.value) {
+            fileInput.value.value = '';
+        }
     } catch (err) {
         console.error('Error uploading file:', err);
-        error.value = `Lỗi khi tải lên file: ${err.message}`;
+        error.value = err.message || 'Không thể tải lên file. Vui lòng thử lại.';
     } finally {
         loading.value = false;
     }
@@ -127,18 +120,8 @@ const uploadFile = async () => {
 
 // Download the file
 const downloadFile = () => {
-    if (uploadResult.value && uploadResult.value.downloadURL) {
-        window.open(uploadResult.value.downloadURL, '_blank');
+    if (uploadResult.value && uploadResult.value.downloadUrl) {
+        window.open(uploadResult.value.downloadUrl, '_blank');
     }
 };
 </script>
-
-<style scoped>
-.file-uploader {
-    margin-bottom: 1rem;
-}
-
-.hidden {
-    display: none;
-}
-</style>

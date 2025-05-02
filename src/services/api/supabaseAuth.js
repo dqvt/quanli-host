@@ -23,7 +23,7 @@ export const login = async (email, password) => {
 
 /**
  * Sign out the current user
- * @returns {Promise} - Promise that resolves when sign out is complete
+ * @returns {Promise} - Supabase auth sign out result
  */
 export const logout = async () => {
     try {
@@ -36,40 +36,13 @@ export const logout = async () => {
 };
 
 /**
- * Register a new user with email and password
- * @param {string} email - User email
- * @param {string} password - User password
- * @param {string} displayName - User display name
- * @returns {Promise} - Supabase auth user credential
- */
-export const register = async (email, password, displayName) => {
-    try {
-        // Create user with email and password
-        const { data, error } = await supabase.auth.signUp({
-            email,
-            password,
-            options: {
-                data: {
-                    display_name: displayName
-                }
-            }
-        });
-        
-        if (error) throw error;
-        return data.user;
-    } catch (error) {
-        console.error('Registration error:', error);
-        throw error;
-    }
-};
-
-/**
  * Get the current authenticated user
- * @returns {Object|null} - Current user or null if not authenticated
+ * @returns {Promise<Object|null>} - Current user or null if not authenticated
  */
 export const getCurrentUser = async () => {
     try {
-        const { data } = await supabase.auth.getUser();
+        const { data, error } = await supabase.auth.getUser();
+        if (error) throw error;
         return data.user;
     } catch (error) {
         console.error('Get current user error:', error);
@@ -79,13 +52,17 @@ export const getCurrentUser = async () => {
 
 /**
  * Subscribe to auth state changes
- * @param {Function} callback - Callback function to handle auth state changes
+ * @param {Function} callback - Callback function to be called when auth state changes
  * @returns {Function} - Unsubscribe function
  */
 export const onAuthStateChange = (callback) => {
     const { data } = supabase.auth.onAuthStateChange((event, session) => {
-        callback(session?.user || null);
+        if (event === 'SIGNED_IN' && session) {
+            callback(session.user);
+        } else if (event === 'SIGNED_OUT') {
+            callback(null);
+        }
     });
-    
+
     return data.subscription.unsubscribe;
 };

@@ -98,11 +98,7 @@ const saveVehicle = async () => {
             updated_at: new Date().toISOString()
         };
 
-        const { data, error } = await supabase
-            .from('vehicles')
-            .insert(vehicleDataToSave)
-            .select()
-            .single();
+        const { data, error } = await supabase.from('vehicles').insert(vehicleDataToSave).select().single();
 
         if (error) throw error;
 
