@@ -10,7 +10,10 @@ const model = ref([
     },
     {
         label: 'Chức năng',
-        items: [{ label: 'Danh sách chuyến xe', icon: 'pi pi-fw pi-list', to: '/trip/list', class: 'rotated-icon' }]
+        items: [
+            { label: 'Danh sách chuyến xe', icon: 'pi pi-fw pi-list', to: '/trip/list', class: 'rotated-icon' },
+            { label: 'Chuyến xe chờ báo giá', icon: 'pi pi-fw pi-tag', to: '/trip/waiting-price', class: 'rotated-icon' }
+        ]
     },
     {
         label: 'Quản lý xe',

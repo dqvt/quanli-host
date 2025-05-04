@@ -3,7 +3,6 @@
 import { onMounted, ref } from 'vue';
 
 // Service imports
-import { calculateAssistantWage, calculateDriverWage } from '@/services/salary';
 import { calculateTotalExpenses, getStatusSeverity, updateTrip, useTripList, validateDistance } from '@/services/trip';
 
 // PrimeVue component imports
@@ -36,16 +35,11 @@ const toast = useToast();
 const { filteredTrips, loading, fetchData, approveTrip, approvingTripId, driverFilterValue, assistantFilterValue, customerFilterValue, vehicleLicenseNumberFilter, startDateFilter, endDateFilter, staffList, customerList, vehicleList } =
     useTripList('PENDING');
 
-// Use another instance of the trip list composable with NON_PENDING status filter for approved trips
-const { filteredTrips: approvedTrips, loading: loadingApproved, setPriced, fetchData: fetchApprovedData } = useTripList('NON_PENDING');
-
 // State management
 const confirmDialog = ref(false);
 const tripToApprove = ref(null);
 const savingState = ref({});
 const editModeState = ref({});
-const priceInputState = ref({});
-const settingPriceState = ref({});
 const validationErrors = ref({});
 
 // Trip approval functions
@@ -54,9 +48,35 @@ const confirmApprove = (tripId) => {
     confirmDialog.value = true;
 };
 
-const handleApprove = () => {
+const handleApprove = async () => {
     if (tripToApprove.value) {
-        approveTrip(tripToApprove.value);
+        try {
+            await approveTrip(tripToApprove.value);
+            
+            // Show success message
+            toast.add({
+                severity: 'success',
+                summary: 'Thành công',
+                detail: 'Chuyến xe đã được duyệt',
+                life: 3000
+            });
+            
+            toast.add({
+                severity: 'info',
+                summary: 'Thông báo',
+                detail: 'Bạn có thể xem chuyến xe trong mục "Chuyến xe chờ báo giá"',
+                life: 5000
+            });
+            
+        } catch (error) {
+            console.error('Error approving trip:', error);
+            toast.add({
+                severity: 'error',
+                summary: 'Lỗi',
+                detail: 'Không thể duyệt chuyến xe',
+                life: 3000
+            });
+        }
         tripToApprove.value = null;
     }
     confirmDialog.value = false;
@@ -118,22 +138,23 @@ const saveTrip = async (trip) => {
     savingState.value[tripId] = true;
 
     try {
-        // Prepare data for update
+        // Prepare data for update - use camelCase field names for the service
         const updateData = {
-            starting_point: trip.startingPoint,
-            ending_point: trip.endingPoint,
+            startingPoint: trip.startingPoint,
+            endingPoint: trip.endingPoint,
             distance: trip.distance,
-            vehicle_id: trip.vehicleId,
+            vehicleId: trip.vehicleId,
             expenses: {
-                police_fee: trip.expenses.policeFee,
-                toll_fee: trip.expenses.tollFee,
-                food_fee: trip.expenses.foodFee,
-                gas_money: trip.expenses.gasMoney,
-                mechanic_fee: trip.expenses.mechanicFee
-            },
-            updated_at: new Date().toISOString()
+                policeFee: trip.expenses.policeFee,
+                tollFee: trip.expenses.tollFee,
+                foodFee: trip.expenses.foodFee,
+                gasMoney: trip.expenses.gasMoney,
+                mechanicFee: trip.expenses.mechanicFee
+            }
         };
 
+        console.log('Updating trip with data:', updateData);
+        
         // Use the updateTrip function from the trip service
         await updateTrip(tripId, updateData);
 
@@ -162,57 +183,6 @@ const saveTrip = async (trip) => {
     }
 };
 
-// Function to handle setting the price for a trip
-const handleSetPrice = async (tripId) => {
-    const price = priceInputState.value[tripId];
-
-    if (!price || price <= 0) {
-        toast.add({
-            severity: 'error',
-            summary: 'Lỗi',
-            detail: 'Giá chuyến đi phải lớn hơn 0',
-            life: 3000
-        });
-        return;
-    }
-
-    settingPriceState.value[tripId] = true;
-
-    try {
-        await setPriced(tripId, price);
-        // Clear the price input after successful update
-        priceInputState.value[tripId] = null;
-
-        // Show success message with wage information
-        const trip = approvedTrips.value.find((t) => t.id === tripId);
-        if (trip) {
-            const driverWage = calculateDriverWage({ ...trip, price });
-            const assistantWage = calculateAssistantWage({ ...trip, price });
-
-            toast.add({
-                severity: 'success',
-                summary: 'Thành công',
-                detail: `Đã cập nhật giá chuyến đi và tính lương. Lương tài xế: ${new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(driverWage)}, Lương phụ xe: ${new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(assistantWage)}`,
-                life: 5000
-            });
-        }
-
-        // Explicitly refresh the approved trips list
-        await fetchApprovedData.trips();
-    } catch (error) {
-        console.error('Error setting price:', error);
-        toast.add({
-            severity: 'error',
-            summary: 'Lỗi',
-            detail: 'Không thể cập nhật giá chuyến đi',
-            life: 3000
-        });
-    } finally {
-        settingPriceState.value[tripId] = false;
-    }
-};
-
-
 // Fetch data on component mount
 onMounted(async () => {
     // Fetch data for pending trips
@@ -220,11 +190,6 @@ onMounted(async () => {
     fetchData.customers();
     fetchData.vehicles();
     await fetchData.trips();
-
-    // Fetch data for approved trips
-    await fetchApprovedData.trips();
-
-
 });
 </script>
 
@@ -451,130 +416,6 @@ onMounted(async () => {
             <div v-if="!loading && filteredTrips.length === 0" class="text-center p-8 bg-yellow-50 rounded-lg border border-yellow-200">
                 <i class="pi pi-inbox mb-4 text-yellow-500" style="font-size: 2.5rem"></i>
                 <p class="text-gray-600">Không tìm thấy chuyến xe nào chờ duyệt</p>
-            </div>
-        </div>
-    </Fluid>
-    <!-- Divider -->
-    <div class="my-8 border-t border-gray-200 relative">
-        <div class="absolute left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white px-4 text-gray-400">
-            <i class="pi pi-arrow-down"></i>
-        </div>
-    </div>
-    <Fluid>
-        <!-- Approved Trips Section -->
-        <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-blue-500">
-            <div class="flex items-center mb-4">
-                <i class="pi pi-tag mr-3 text-blue-500 text-2xl"></i>
-                <div>
-                    <h2 class="font-bold text-xl text-gray-800">Danh sách chuyến xe đã duyệt chờ báo giá</h2>
-                    <p class="text-sm text-gray-500">Các chuyến xe đã được duyệt và đang chờ báo giá</p>
-                </div>
-                <div class="ml-auto bg-blue-100 text-blue-800 font-semibold px-3 py-1 rounded-full text-sm">{{ approvedTrips.length }} chuyến</div>
-            </div>
-
-            <!-- Loading indicator for approved trips -->
-            <div v-if="loadingApproved" class="flex justify-center items-center p-4">
-                <ProgressSpinner style="width: 50px; height: 50px" />
-            </div>
-
-            <!-- Approved trips table -->
-            <div v-else-if="approvedTrips.length > 0" class="overflow-x-auto rounded-lg border border-gray-200">
-                <table class="min-w-full border-collapse text-xs">
-                    <thead class="sticky top-0">
-                        <tr class="bg-blue-50 border-b border-blue-200">
-                            <th class="px-3 py-3 text-left font-semibold text-gray-800 border-r border-blue-100">Biển số xe</th>
-                            <th class="px-3 py-3 text-left font-semibold text-gray-800 border-r border-blue-100">Thời gian đi</th>
-                            <th class="px-3 py-3 text-left font-semibold text-gray-800 border-r border-blue-100">Điểm đi</th>
-                            <th class="px-3 py-3 text-left font-semibold text-gray-800 border-r border-blue-100">Điểm đến</th>
-                            <th class="px-3 py-3 text-left font-semibold text-gray-800 border-r border-blue-100">Khoảng cách</th>
-                            <th class="px-3 py-3 text-left font-semibold text-gray-800 border-r border-blue-100">Tài xế</th>
-                            <th class="px-3 py-3 text-left font-semibold text-gray-800 border-r border-blue-100">Phụ xe</th>
-                            <th class="px-3 py-3 text-left font-semibold text-gray-800 border-r border-blue-100">Khách hàng</th>
-                            <th class="px-3 py-3 text-left font-semibold text-gray-800 border-r border-blue-100">Tổng chi phí</th>
-                            <th class="px-3 py-3 text-left font-semibold text-gray-800 border-r border-blue-100">Trạng thái</th>
-                            <th class="px-3 py-3 text-left font-semibold text-gray-800 border-r border-blue-100">Giá chuyến đi</th>
-                            <th class="px-3 py-3 text-left font-semibold text-gray-800 border-r border-blue-100">Lương tài xế</th>
-                            <th class="px-3 py-3 text-left font-semibold text-gray-800 border-r border-blue-100">Lương phụ xe</th>
-                            <th class="px-3 py-3 text-left font-semibold text-gray-800">Thao tác</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr v-for="(trip, index) in approvedTrips" :key="trip.id" :class="{ 'bg-blue-50/30': index % 2 === 0 }" class="border-b border-blue-100 hover:bg-blue-50/50 transition-colors">
-                            <td class="px-3 py-2 border-r border-blue-100">
-                                <SearchableSelect
-                                    v-model="trip.vehicleId"
-                                    :options="vehicleList"
-                                    optionLabel="label"
-                                    optionValue="value"
-                                    :disabled="true"
-                                    class="w-full text-xs"
-                                    :placeholder="trip.vehicleLicenseNumber"
-                                />
-                            </td>
-                            <td class="px-3 py-2 whitespace-nowrap border-r border-blue-100" :title="$formatDate(trip.tripDate)">{{ $formatDate(trip.tripDate) }}</td>
-                            <td class="px-3 py-2 whitespace-nowrap border-r border-blue-100" :title="trip.startingPoint">{{ trip.startingPoint }}</td>
-                            <td class="px-3 py-2 whitespace-nowrap border-r border-blue-100" :title="trip.endingPoint">{{ trip.endingPoint }}</td>
-                            <td class="px-3 py-2 whitespace-nowrap border-r border-blue-100" :title="trip.distance">{{ trip.distance }}</td>
-                            <td class="px-3 py-2 whitespace-nowrap border-r border-blue-100" :title="trip.driverName">{{ trip.driverName }}</td>
-                            <td class="px-3 py-2 whitespace-nowrap border-r border-blue-100" :title="trip.assistantDriverName">{{ trip.assistantDriverName }}</td>
-                            <td class="px-3 py-2 whitespace-nowrap border-r border-blue-100" :title="trip.customerDisplayName">{{ trip.customerDisplayName }}</td>
-                            <td class="px-3 py-2 whitespace-nowrap border-r border-blue-100" :title="calculateTotalExpenses(trip.expenses)">
-                                {{ calculateTotalExpenses(trip.expenses) }}
-                            </td>
-                            <td class="px-3 py-2 whitespace-nowrap border-r border-blue-100" :title="translateStatus(trip.status)">
-                                <Tag :severity="getStatusSeverity(trip.status)" :value="translateStatus(trip.status)" class="text-xs" />
-                            </td>
-
-                            <!-- Price input field (only for WAITING_FOR_PRICE status) -->
-                            <td class="px-3 py-2 border-r border-blue-100">
-                                <div v-if="trip.status === 'PRICED'" class="whitespace-nowrap font-medium text-green-600">
-                                    {{ new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(trip.price) }}
-                                </div>
-                                <InputNumber v-else v-model="priceInputState[trip.id]" mode="currency" currency="VND" locale="vi-VN" :minFractionDigits="0" :maxFractionDigits="0" placeholder="Nhập giá chuyến đi" class="w-full text-xs" />
-                            </td>
-
-                            <!-- Driver wage (only for PRICED status) -->
-                            <td class="px-3 py-2 border-r border-blue-100">
-                                <div v-if="trip.status === 'PRICED'" class="whitespace-nowrap font-medium text-blue-600">
-                                    {{ new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(calculateDriverWage(trip)) }}
-                                </div>
-                                <div v-else class="text-gray-400 italic">Chưa có</div>
-                            </td>
-
-                            <!-- Assistant wage (only for PRICED status) -->
-                            <td class="px-3 py-2 border-r border-blue-100">
-                                <div v-if="trip.status === 'PRICED'" class="whitespace-nowrap font-medium text-blue-600">
-                                    {{ new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(calculateAssistantWage(trip)) }}
-                                </div>
-                                <div v-else class="text-gray-400 italic">Chưa có</div>
-                            </td>
-
-                            <!-- Actions column -->
-                            <td class="px-3 py-2">
-                                <div class="flex gap-1">
-                                    <Button
-                                        v-if="trip.status === 'WAITING_FOR_PRICE'"
-                                        icon="pi pi-check"
-                                        label="Báo giá"
-                                        severity="success"
-                                        size="small"
-                                        :loading="settingPriceState[trip.id]"
-                                        @click="handleSetPrice(trip.id)"
-                                        class="text-xs"
-                                        :disabled="!priceInputState[trip.id] || priceInputState[trip.id] <= 0"
-                                    />
-                                    <div v-else-if="trip.status === 'PRICED'" class="text-xs text-green-600 flex items-center"><i class="pi pi-check-circle mr-1"></i> Đã báo giá</div>
-                                </div>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- Empty state for approved trips -->
-            <div v-else class="text-center p-8 bg-blue-50 rounded-lg border border-blue-200">
-                <i class="pi pi-inbox mb-4 text-blue-500" style="font-size: 2.5rem"></i>
-                <p class="text-gray-600">Không tìm thấy chuyến xe nào đã duyệt chờ báo giá</p>
             </div>
         </div>
     </Fluid>

@@ -27,6 +27,11 @@ const router = createRouter({
                     component: () => import('@/components/trip/List.vue')
                 },
                 {
+                    path: '/trip/waiting-price',
+                    name: 'TripWaitingPrice',
+                    component: () => import('@/views/trip/WaitingPriceView.vue')
+                },
+                {
                     path: '/trip/add',
                     name: 'TripAdd',
                     component: () => import('@/components/trip/Add.vue'),
@@ -42,11 +47,6 @@ const router = createRouter({
                             });
                         }
                     }
-                },
-                {
-                    path: '/trip/edit/:id',
-                    name: 'TripEdit',
-                    component: () => import('@/components/trip/Edit.vue')
                 },
 
                 // Expense routes have been removed
