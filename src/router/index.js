@@ -29,7 +29,7 @@ const router = createRouter({
                 {
                     path: '/trip/waiting-price',
                     name: 'TripWaitingPrice',
-                    component: () => import('@/views/trip/WaitingPriceView.vue')
+                    component: () => import('@/components/trip/WaitingPriceList.vue')
                 },
                 {
                     path: '/trip/add',

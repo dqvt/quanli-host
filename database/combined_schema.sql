@@ -196,6 +196,10 @@ CREATE TABLE IF NOT EXISTS trips (
         "gas_money": 0,
         "mechanic_fee": 0
     }'::jsonb,
+    salary JSONB DEFAULT '{
+        "driver": 0,
+        "assistant": 0
+    }'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -241,39 +245,9 @@ COMMENT ON COLUMN trips.status IS 'Current status of the trip (PENDING, WAITING_
 COMMENT ON COLUMN trips.price_for_customer IS 'Price charged for the trip for the customer';
 COMMENT ON COLUMN trips.price_for_staff IS 'Price charged for the trip for the staff';
 COMMENT ON COLUMN trips.expenses IS 'JSON object containing expense details (police_fee, toll_fee, food_fee, gas_money, mechanic_fee)';
+COMMENT ON COLUMN trips.salary IS 'JSON object containing salary details (driver, assistant)';
 COMMENT ON COLUMN trips.created_at IS 'Timestamp when the record was created';
 COMMENT ON COLUMN trips.updated_at IS 'Timestamp when the record was last updated';
-
--- =============================================
--- STAFF WAGES TABLE
--- =============================================
--- Create staff_wages table to store calculated wages for each trip
-CREATE TABLE IF NOT EXISTS staff_wages (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    trip_id UUID REFERENCES trips(id),
-    staff_id UUID REFERENCES staff(id),
-    role VARCHAR(20) NOT NULL, -- 'driver' or 'assistant'
-    amount NUMERIC NOT NULL,
-    notes TEXT, -- Optional notes about the calculation
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(trip_id, staff_id) -- Ensure one wage record per staff per trip
-);
-
--- Create indexes for faster lookups
-CREATE INDEX IF NOT EXISTS idx_staff_wages_trip_id ON staff_wages(trip_id);
-CREATE INDEX IF NOT EXISTS idx_staff_wages_staff_id ON staff_wages(staff_id);
-
--- Add comments to staff_wages table
-COMMENT ON TABLE staff_wages IS 'Stores calculated wages for staff members for each trip based on percentage rates';
-COMMENT ON COLUMN staff_wages.id IS 'Unique identifier for the wage record';
-COMMENT ON COLUMN staff_wages.trip_id IS 'Reference to the trip';
-COMMENT ON COLUMN staff_wages.staff_id IS 'Reference to the staff member';
-COMMENT ON COLUMN staff_wages.role IS 'Role of the staff member in the trip (driver or assistant)';
-COMMENT ON COLUMN staff_wages.amount IS 'Calculated wage amount based on trip price_for_staff and role percentage rate';
-COMMENT ON COLUMN staff_wages.notes IS 'Optional notes about the calculation';
-COMMENT ON COLUMN staff_wages.created_at IS 'Timestamp when the record was created';
-COMMENT ON COLUMN staff_wages.updated_at IS 'Timestamp when the record was last updated';
 
 -- =============================================
 -- DEBTS TABLE
@@ -365,6 +339,9 @@ SELECT
      COALESCE((t.expenses->>'food_fee')::numeric, 0) + 
      COALESCE((t.expenses->>'gas_money')::numeric, 0) + 
      COALESCE((t.expenses->>'mechanic_fee')::numeric, 0)) AS total_expenses,
+    t.salary,
+    COALESCE((t.salary->>'driver')::numeric, 0) AS driver_salary,
+    COALESCE((t.salary->>'assistant')::numeric, 0) AS assistant_salary,
     t.created_at,
     t.updated_at
 FROM 
@@ -403,29 +380,6 @@ GROUP BY
     s.id, s.full_name, s.short_name, s.status, s.phone_number, s.vietnam_id, s.license_number;
 
 COMMENT ON VIEW staff_summary IS 'View that provides staff details with trip counts as driver and assistant';
-
--- Create a view for staff wages summary
-CREATE OR REPLACE VIEW staff_wages_summary AS
-SELECT 
-    s.id AS staff_id,
-    s.full_name,
-    s.short_name,
-    EXTRACT(YEAR FROM t.trip_date) AS year,
-    EXTRACT(MONTH FROM t.trip_date) AS month,
-    COUNT(DISTINCT sw.trip_id) AS trip_count,
-    SUM(sw.amount) AS total_wages
-FROM 
-    staff s
-LEFT JOIN 
-    staff_wages sw ON s.id = sw.staff_id
-LEFT JOIN 
-    trips t ON sw.trip_id = t.id
-GROUP BY 
-    s.id, s.full_name, s.short_name, year, month
-ORDER BY 
-    s.full_name, year DESC, month DESC;
-
-COMMENT ON VIEW staff_wages_summary IS 'View that provides monthly summary of staff wages';
 
 -- Create a view for customer debt summary with trip details
 CREATE OR REPLACE VIEW customer_debt_summary AS
@@ -492,33 +446,72 @@ ORDER BY
 
 COMMENT ON VIEW customer_balance IS 'View that provides overall balance for each customer (debt minus payments)';
 
--- Update staff_wages table comment
-COMMENT ON TABLE staff_wages IS 'Stores calculated wages for staff members for each trip based on percentage rates';
-
--- Update staff_wages amount column comment
-COMMENT ON COLUMN staff_wages.amount IS 'Calculated wage amount based on trip price_for_staff and role percentage rate';
-
--- Update staff_wages table to include calculated amount
-CREATE OR REPLACE FUNCTION calculate_staff_wage()
-RETURNS TRIGGER AS $$
-BEGIN
-    -- Calculate the wage amount based on staff role-specific wage percentage and trip price_for_staff
-    SELECT (
+-- Create a view for staff wages summary
+CREATE OR REPLACE VIEW staff_wages_summary AS
+SELECT 
+    s.id AS staff_id,
+    s.full_name,
+    EXTRACT(YEAR FROM t.trip_date) AS year,
+    EXTRACT(MONTH FROM t.trip_date) AS month,
+    COUNT(t.id) AS trip_count,
+    SUM(
         CASE 
-            WHEN NEW.role = 'driver' THEN s.driver_wage_percentage
-            WHEN NEW.role = 'assistant' THEN s.assistant_wage_percentage
-        END * t.price_for_staff / 100
-    ) INTO NEW.amount
-    FROM trips t
-    JOIN staff s ON s.id = NEW.staff_id
-    WHERE t.id = NEW.trip_id;
+            WHEN t.driver_id = s.id THEN COALESCE((t.salary->>'driver')::numeric, 0)
+            WHEN t.assistant_id = s.id THEN COALESCE((t.salary->>'assistant')::numeric, 0)
+            ELSE 0
+        END
+    ) AS total_wages
+FROM 
+    staff s
+LEFT JOIN 
+    trips t ON (s.id = t.driver_id OR s.id = t.assistant_id) AND t.status = 'PRICED'
+GROUP BY 
+    s.id, s.full_name, year, month
+ORDER BY 
+    s.full_name, year DESC, month DESC;
+
+COMMENT ON VIEW staff_wages_summary IS 'View that provides monthly summary of staff wages from trips';
+
+-- Function to update salary amounts in the trip table
+CREATE OR REPLACE FUNCTION update_trip_salary()
+RETURNS TRIGGER AS $$
+DECLARE
+    driver_perc numeric := 0;
+    assistant_perc numeric := 0;
+BEGIN
+    -- Only calculate if price_for_staff was updated or inserted
+    IF TG_OP = 'INSERT' OR NEW.price_for_staff <> OLD.price_for_staff OR 
+       NEW.driver_id IS DISTINCT FROM OLD.driver_id OR 
+       NEW.assistant_id IS DISTINCT FROM OLD.assistant_id THEN
+        
+        -- Get driver wage percentage if driver exists
+        IF NEW.driver_id IS NOT NULL THEN
+            SELECT driver_wage_percentage INTO driver_perc
+            FROM staff 
+            WHERE id = NEW.driver_id;
+        END IF;
+        
+        -- Get assistant wage percentage if assistant exists
+        IF NEW.assistant_id IS NOT NULL THEN
+            SELECT assistant_wage_percentage INTO assistant_perc
+            FROM staff 
+            WHERE id = NEW.assistant_id;
+        END IF;
+        
+        -- Build the salary JSONB
+        NEW.salary := jsonb_build_object(
+            'driver', ROUND((driver_perc * NEW.price_for_staff / 100)::numeric, 2),
+            'assistant', ROUND((assistant_perc * NEW.price_for_staff / 100)::numeric, 2)
+        );
+    END IF;
     
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
--- Create trigger to automatically calculate wage amount
-CREATE TRIGGER calculate_staff_wage_trigger
-    BEFORE INSERT OR UPDATE ON staff_wages
+-- Create trigger to automatically update salary in trips table
+CREATE TRIGGER update_trip_salary_trigger
+    BEFORE INSERT OR UPDATE ON trips
     FOR EACH ROW
-    EXECUTE FUNCTION calculate_staff_wage();
+    EXECUTE FUNCTION update_trip_salary();
+

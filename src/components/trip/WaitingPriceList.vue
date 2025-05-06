@@ -3,10 +3,21 @@
 import { onMounted, ref, watch } from 'vue';
 
 // Service imports
+import { supabase } from '@/config/supabase';
 import { calculateAssistantWage, calculateDriverWage } from '@/services/salary';
-import { calculateTotalExpenses, getStatusSeverity, useTripList } from '@/services/trip';
+import { calculateTotalExpenses, formatExpensesToFrontend, getStatusSeverity, useTripList } from '@/services/trip';
+
+// Define the selection query (copied from trip.js)
+const TRIP_SELECT_WITH_RELATIONS = `
+    *,
+    customers(id, company_name, representative_name),
+    vehicles(id, license_number),
+    driver:staff!fk_driver(id, full_name),
+    assistant:staff!fk_assistant(id, full_name)
+`;
 
 // PrimeVue component imports
+import CustomTooltip from '@/components/ui/CustomTooltip.vue';
 import SearchableSelect from '@/components/ui/SearchableSelect.vue';
 import Button from 'primevue/button';
 import Fluid from 'primevue/fluid';
@@ -32,49 +43,54 @@ const toast = useToast();
 const { filteredTrips: approvedTrips, loading: loadingApproved, setPriced, fetchData: fetchApprovedData, vehicleList } = useTripList('NON_PENDING');
 
 // State management
-const priceInputState = ref({});
 const settingPriceState = ref({});
 const calculatedWages = ref({});
 
 // Calculate wages when price input changes
-const calculateWagesForInput = (tripId, priceForStaff) => {
-    if (!tripId || !priceForStaff || priceForStaff <= 0) {
-        if (calculatedWages.value && calculatedWages.value[tripId]) {
-            calculatedWages.value[tripId] = null;
+const calculateWagesForInput = (trip) => {
+    // Convert to number and ensure it's valid
+    const priceForStaff = Number(trip.price_for_staff) || 0;
+    
+    if (!trip || priceForStaff <= 0) {
+        if (calculatedWages.value && calculatedWages.value[trip.id]) {
+            calculatedWages.value[trip.id] = null;
         }
         return;
     }
     
-    const trip = approvedTrips.value.find(t => t.id === tripId);
-    if (trip) {
-        // Ensure calculatedWages.value is an object
-        if (!calculatedWages.value) {
-            calculatedWages.value = {};
-        }
-        
-        calculatedWages.value[tripId] = {
-            driverWage: calculateDriverWage({ ...trip, price_for_staff: priceForStaff }),
-            assistantWage: calculateAssistantWage({ ...trip, price_for_staff: priceForStaff })
-        };
+    // Ensure calculatedWages.value is an object
+    if (!calculatedWages.value) {
+        calculatedWages.value = {};
     }
+    
+    calculatedWages.value[trip.id] = {
+        driverWage: calculateDriverWage({ ...trip, price_for_staff: priceForStaff }),
+        assistantWage: calculateAssistantWage({ ...trip, price_for_staff: priceForStaff })
+    };
+    
+    // Debug
+    console.log(`Calculated wages for trip ${trip.id} with price ${priceForStaff}:`, calculatedWages.value[trip.id]);
 };
 
 // Watch for price input changes to update calculated wages
-watch(priceInputState, (newValues) => {
-    if (newValues) {
-        Object.entries(newValues).forEach(([tripId, price]) => {
-            if (tripId && price) {
-                calculateWagesForInput(tripId, price);
+watch(() => approvedTrips.value, (newTrips) => {
+    if (newTrips && newTrips.length) {
+        console.log("Watching trips for price changes");
+        newTrips.forEach(trip => {
+            if (trip.id && trip.price_for_staff) {
+                console.log(`Trip ${trip.id} has price_for_staff: ${trip.price_for_staff}`);
+                calculateWagesForInput(trip);
             }
         });
     }
 }, { deep: true });
 
 // Function to handle setting the price for a trip
-const handleSetPrice = async (tripId) => {
-    const priceForStaff = priceInputState.value[tripId];
-
-    if (!priceForStaff || priceForStaff <= 0) {
+const handleSetPrice = async (trip) => {
+    // Convert to number and ensure it's greater than 0
+    const priceForStaff = Number(trip.price_for_staff) || 0;
+    
+    if (priceForStaff <= 0) {
         toast.add({
             severity: 'error',
             summary: 'Lỗi',
@@ -84,37 +100,47 @@ const handleSetPrice = async (tripId) => {
         return;
     }
 
-    settingPriceState.value[tripId] = true;
+    settingPriceState.value[trip.id] = true;
 
     try {
         // Use a fixed price for customer (e.g., 10% higher than staff price)
         const priceForCustomer = priceForStaff * 1.1;
         
-        // Pass both prices to the setPriced function
-        await setPriced(tripId, priceForCustomer, priceForStaff);
+        console.log('Setting price for trip:', {
+            tripId: trip.id,
+            priceForStaff,
+            priceForCustomer
+        });
         
-        // Clear the price input and calculated wages after successful update
-        priceInputState.value[tripId] = null;
+        // Pass both prices to the setPriced function
+        const result = await setPriced(trip.id, priceForCustomer, priceForStaff);
+        
+        console.log('Result from setPriced:', result);
+        
+        // Clear the calculated wages after successful update
         if (calculatedWages.value) {
-            calculatedWages.value[tripId] = null;
+            calculatedWages.value[trip.id] = null;
         }
 
         // Show success message with wage information
-        const trip = approvedTrips.value.find((t) => t.id === tripId);
-        if (trip) {
-            const driverWage = calculateDriverWage({ ...trip, price_for_staff: priceForStaff });
-            const assistantWage = calculateAssistantWage({ ...trip, price_for_staff: priceForStaff });
+        const driverWage = calculateDriverWage({ ...trip, price_for_staff: priceForStaff });
+        const assistantWage = calculateAssistantWage({ ...trip, price_for_staff: priceForStaff });
 
-            toast.add({
-                severity: 'success',
-                summary: 'Thành công',
-                detail: `Đã cập nhật giá chuyến đi và tính lương. Lương tài xế: ${new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(driverWage)}, Lương phụ xe: ${new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(assistantWage)}`,
-                life: 5000
-            });
-        }
+        toast.add({
+            severity: 'success',
+            summary: 'Thành công',
+            detail: `Đã cập nhật giá chuyến đi và tính lương. Lương tài xế: ${new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(driverWage)}, Lương phụ xe: ${new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(assistantWage)}`,
+            life: 5000
+        });
 
         // Explicitly refresh the approved trips list
         await fetchApprovedData.trips();
+        
+        // For debugging
+        console.log('Trips after refresh:', approvedTrips.value);
+        
+        // Force a re-fetch of the specific trip to ensure we have the latest data
+        await refetchTrip(trip.id);
     } catch (error) {
         console.error('Error setting price:', error);
         toast.add({
@@ -124,8 +150,76 @@ const handleSetPrice = async (tripId) => {
             life: 3000
         });
     } finally {
-        settingPriceState.value[tripId] = false;
+        settingPriceState.value[trip.id] = false;
     }
+};
+
+// Function to refetch a specific trip after price update
+const refetchTrip = async (tripId) => {
+    try {
+        const { data, error } = await supabase
+            .from('trips')
+            .select(TRIP_SELECT_WITH_RELATIONS)
+            .eq('id', tripId)
+            .single();
+            
+        if (error) throw error;
+        
+        console.log('Refetched trip data:', data);
+        
+        // Update the trip in the list
+        const index = approvedTrips.value.findIndex(t => t.id === tripId);
+        if (index !== -1) {
+            const updatedTrip = {
+                id: data.id,
+                customerId: data.customer_id,
+                vehicleId: data.vehicle_id,
+                driverId: data.driver_id,
+                assistantId: data.assistant_id,
+                startingPoint: data.starting_point,
+                endingPoint: data.ending_point,
+                distance: data.distance,
+                tripDate: data.trip_date,
+                status: data.status,
+                price: Number(data.price || 0),
+                price_for_staff: Number(data.price_for_staff || 0),
+                price_for_customer: Number(data.price_for_customer || 0),
+                expenses: formatExpensesToFrontend(data.expenses),
+                // Add derived fields
+                customerDisplayName: data.customers?.company_name || data.customers?.representative_name || 'Unknown',
+                vehicleLicenseNumber: data.vehicles?.license_number || 'Unknown',
+                driverName: data.driver?.full_name || 'Unknown',
+                assistantDriverName: data.assistant?.full_name || 'Unknown',
+                createdAt: data.created_at,
+                updatedAt: data.updated_at
+            };
+            
+            console.log('Updating trip in list:', updatedTrip);
+            approvedTrips.value[index] = updatedTrip;
+        }
+    } catch (err) {
+        console.error('Error refetching trip:', err);
+    }
+};
+
+// Function to format tooltip content for expenses in plain text
+const formatExpensesTooltip = (expenses) => {
+    if (!expenses) return 'Không có chi phí';
+    
+    const formatter = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' });
+    const totalExpenses = calculateTotalExpenses(expenses);
+    
+    // Create table-like format for better readability
+    return `<div class="expense-tooltip">
+        <table>
+            <tr><td class="expense-label">Tiền dầu:</td><td class="expense-value">${formatter.format(Number(expenses.gasMoney || 0))}</td></tr>
+            <tr><td class="expense-label">Tiền CSGT:</td><td class="expense-value">${formatter.format(Number(expenses.policeFee || 0))}</td></tr>
+            <tr><td class="expense-label">Tiền phí đường:</td><td class="expense-value">${formatter.format(Number(expenses.tollFee || 0))}</td></tr>
+            <tr><td class="expense-label">Tiền ăn:</td><td class="expense-value">${formatter.format(Number(expenses.foodFee || 0))}</td></tr>
+            <tr><td class="expense-label">Tiền sửa xe:</td><td class="expense-value">${formatter.format(Number(expenses.mechanicFee || 0))}</td></tr>
+            <tr class="total-row"><td class="expense-label">Tổng chi phí:</td><td class="expense-value">${formatter.format(totalExpenses)}</td></tr>
+        </table>
+    </div>`;
 };
 
 // Fetch data on component mount
@@ -174,7 +268,7 @@ onMounted(async () => {
                         </tr>
                     </thead>
                     <tbody>
-                        <tr v-for="(trip, index) in approvedTrips" :key="trip.id" :class="{ 'bg-blue-50/30': index % 2 === 0 }" class="border-b border-blue-100 hover:bg-blue-50/50 transition-colors">
+                        <tr v-for="(trip, index) in approvedTrips" :key="trip.id" :class="{ 'bg-blue-50/30': index % 2 === 0 }" class="border-b border-blue-100 transition-colors">
                             <td class="px-3 py-2 border-r border-blue-100">
                                 <SearchableSelect
                                     v-model="trip.vehicleId"
@@ -193,8 +287,12 @@ onMounted(async () => {
                             <td class="px-3 py-2 whitespace-nowrap border-r border-blue-100" :title="trip.driverName">{{ trip.driverName }}</td>
                             <td class="px-3 py-2 whitespace-nowrap border-r border-blue-100" :title="trip.assistantDriverName">{{ trip.assistantDriverName }}</td>
                             <td class="px-3 py-2 whitespace-nowrap border-r border-blue-100" :title="trip.customerDisplayName">{{ trip.customerDisplayName }}</td>
-                            <td class="px-3 py-2 whitespace-nowrap border-r border-blue-100" :title="calculateTotalExpenses(trip.expenses)">
-                                {{ calculateTotalExpenses(trip.expenses) }}
+                            <td class="px-3 py-2 whitespace-nowrap border-r border-blue-100 relative">
+                                <CustomTooltip :content="formatExpensesTooltip(trip.expenses)" position="top">
+                                    <div class="w-full text-right">
+                                        {{ new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(calculateTotalExpenses(trip.expenses)) }}
+                                    </div>
+                                </CustomTooltip>
                             </td>
                             <td class="px-3 py-2 whitespace-nowrap border-r border-blue-100" :title="translateStatus(trip.status)">
                                 <Tag :severity="getStatusSeverity(trip.status)" :value="translateStatus(trip.status)" class="text-xs" />
@@ -203,19 +301,19 @@ onMounted(async () => {
                             <!-- Price input field (only for WAITING_FOR_PRICE status) -->
                             <td class="px-3 py-2 border-r border-blue-100">
                                 <div v-if="trip.status === 'PRICED'" class="whitespace-nowrap font-medium text-green-600">
-                                    {{ new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(trip.priceForStaff || trip.price_for_staff || trip.price) }}
+                                    {{ new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(Number(trip.price_for_staff || 0)) }}
                                 </div>
                                 <div v-else class="flex flex-col gap-1">
                                     <InputNumber 
-                                        v-model="priceInputState[trip.id]" 
+                                        v-model="trip.price_for_staff" 
                                         mode="currency" 
                                         currency="VND" 
                                         locale="vi-VN" 
                                         :minFractionDigits="0" 
                                         :maxFractionDigits="0" 
-                                        placeholder="Nhập giá cho nhân viên" 
+                                        placeholder="Nhập giá" 
                                         class="w-full text-xs"
-                                        @update:modelValue="value => calculateWagesForInput(trip.id, value)" 
+                                        @update:modelValue="() => calculateWagesForInput(trip)" 
                                     />
                                     <div v-if="calculatedWages.value && calculatedWages.value[trip.id]" class="text-xs mt-1 text-gray-500">
                                         <div class="flex justify-between">
@@ -233,7 +331,7 @@ onMounted(async () => {
                             <!-- Driver wage (only for PRICED status) -->
                             <td class="px-3 py-2 border-r border-blue-100">
                                 <div v-if="trip.status === 'PRICED'" class="whitespace-nowrap font-medium text-blue-600">
-                                    {{ new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(calculateDriverWage(trip)) }}
+                                    {{ new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(Number(calculateDriverWage(trip) || 0)) }}
                                 </div>
                                 <div v-else-if="calculatedWages.value && calculatedWages.value[trip.id]" class="whitespace-nowrap font-medium text-blue-600">
                                     {{ new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(calculatedWages.value[trip.id].driverWage) }}
@@ -244,7 +342,7 @@ onMounted(async () => {
                             <!-- Assistant wage (only for PRICED status) -->
                             <td class="px-3 py-2 border-r border-blue-100">
                                 <div v-if="trip.status === 'PRICED'" class="whitespace-nowrap font-medium text-blue-600">
-                                    {{ new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(calculateAssistantWage(trip)) }}
+                                    {{ new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(Number(calculateAssistantWage(trip) || 0)) }}
                                 </div>
                                 <div v-else-if="calculatedWages.value && calculatedWages.value[trip.id]" class="whitespace-nowrap font-medium text-blue-600">
                                     {{ new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(calculatedWages.value[trip.id].assistantWage) }}
@@ -262,9 +360,9 @@ onMounted(async () => {
                                         severity="success"
                                         size="small"
                                         :loading="settingPriceState[trip.id]"
-                                        @click="handleSetPrice(trip.id)"
+                                        @click="handleSetPrice(trip)"
                                         class="text-xs"
-                                        :disabled="!priceInputState[trip.id] || priceInputState[trip.id] <= 0"
+                                        :disabled="!trip.price_for_staff || trip.price_for_staff <= 0"
                                     />
                                     <div v-else-if="trip.status === 'PRICED'" class="text-xs text-green-600 flex items-center"><i class="pi pi-check-circle mr-1"></i> Đã báo giá</div>
                                 </div>
@@ -284,22 +382,50 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-/* Custom tooltip style */
-[title]:not([title='']):hover {
-    position: relative;
+/* Expense tooltip styles */
+:deep(.expense-tooltip) {
+    padding: 4px;
 }
 
-[title]:not([title='']):hover::after {
-    content: attr(title);
-    position: absolute;
-    left: 0;
-    top: 100%;
-    z-index: 20;
-    background-color: #1f2937; /* bg-gray-800 */
-    color: white;
-    padding: 0.5rem;
-    border-radius: 0.25rem;
-    font-size: 0.75rem;
-    max-width: 20rem;
+:deep(.expense-tooltip table) {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+:deep(.expense-tooltip tr) {
+    border-bottom: 1px solid #eaeaea;
+}
+
+:deep(.expense-tooltip tr:last-child) {
+    border-bottom: none;
+}
+
+:deep(.expense-tooltip .expense-label) {
+    padding: 4px 8px 4px 0;
+    text-align: left;
+    font-weight: 500;
+    color: #64748b;
+}
+
+:deep(.expense-tooltip .expense-value) {
+    padding: 4px 0 4px 8px;
+    text-align: right;
+    font-weight: 600;
+    color: #1e40af;
+}
+
+:deep(.expense-tooltip .total-row) {
+    border-top: 2px solid #cbd5e1;
+    margin-top: 4px;
+}
+
+:deep(.expense-tooltip .total-row .expense-label) {
+    font-weight: 600;
+    color: #334155;
+}
+
+:deep(.expense-tooltip .total-row .expense-value) {
+    font-weight: 700;
+    color: #1e3a8a;
 }
 </style> 

@@ -23,7 +23,7 @@ export const calculateDriverWage = (trip) => {
     // Your custom formula here
     // Example: 10% of trip price
     // Use price_for_staff if available, otherwise fall back to price for backward compatibility
-    const priceForCalculation = trip.price_for_staff !== undefined ? trip.price_for_staff : trip.price;
+    const priceForCalculation = trip.price_for_staff !== undefined ? Number(trip.price_for_staff) : Number(trip.price || 0);
     return priceForCalculation * 0.1;
 };
 
@@ -36,7 +36,7 @@ export const calculateAssistantWage = (trip) => {
     // Your custom formula here
     // Example: 5% of trip price
     // Use price_for_staff if available, otherwise fall back to price for backward compatibility
-    const priceForCalculation = trip.price_for_staff !== undefined ? trip.price_for_staff : trip.price;
+    const priceForCalculation = trip.price_for_staff !== undefined ? Number(trip.price_for_staff) : Number(trip.price || 0);
     return priceForCalculation * 0.05;
 };
 
@@ -60,49 +60,39 @@ export const calculateAssistantSalary = calculateAssistantWage;
  * @returns {Promise<void>}
  */
 export const saveWagesForTrip = async (trip) => {
-    try {
-        // Only calculate wages for PRICED trips
-        if (trip.status !== 'PRICED') return;
+    // Only calculate for PRICED trips
+    if (trip.status !== 'PRICED') return;
 
-        // Calculate driver wage
-        if (trip.driver_id) {
-            const driverWage = calculateDriverWage(trip);
+    const salaries = {
+        driver: 0,
+        assistant: 0
+    };
 
-            // Save driver wage
-            await supabase.from('staff_wages').upsert(
-                {
-                    trip_id: trip.id,
-                    staff_id: trip.driver_id,
-                    role: 'driver',
-                    amount: driverWage,
-                    notes: `Calculated as 10% of trip price: ${trip.price_for_staff !== undefined ? trip.price_for_staff : trip.price}`,
-                    updated_at: new Date().toISOString()
-                },
-                { onConflict: 'trip_id,staff_id' }
-            );
-        }
+    // Calculate driver wage
+    if (trip.driver_id) {
+        salaries.driver = calculateDriverWage(trip);
+    }
 
-        // Calculate assistant wage if assistant exists
-        if (trip.assistant_id) {
-            const assistantWage = calculateAssistantWage(trip);
+    // Calculate assistant wage
+    if (trip.assistant_id) {
+        salaries.assistant = calculateAssistantWage(trip);
+    }
 
-            // Save assistant wage
-            await supabase.from('staff_wages').upsert(
-                {
-                    trip_id: trip.id,
-                    staff_id: trip.assistant_id,
-                    role: 'assistant',
-                    amount: assistantWage,
-                    notes: `Calculated as 5% of trip price: ${trip.price_for_staff !== undefined ? trip.price_for_staff : trip.price}`,
-                    updated_at: new Date().toISOString()
-                },
-                { onConflict: 'trip_id,staff_id' }
-            );
-        }
-    } catch (error) {
-        console.error('Error saving wages for trip:', error);
+    // Update the trip with calculated salaries
+    const { error } = await supabase
+        .from('trips')
+        .update({
+            salary: salaries,
+            updated_at: new Date().toISOString()
+        })
+        .eq('id', trip.id);
+
+    if (error) {
+        console.error('Error saving wages:', error);
         throw error;
     }
+
+    return salaries;
 };
 
 /**

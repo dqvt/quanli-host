@@ -154,45 +154,55 @@ export const getTripsByCustomerId = async (customerId) => {
  * @returns {Promise<Object>} - Created trip
  */
 export const createTrip = async (tripData) => {
-    try {
-        // Validate required fields
-        if (!tripData.startingPoint) throw new Error('Starting point is required');
-        if (!tripData.endingPoint) throw new Error('Ending point is required');
-        if (!validateDistance(tripData.distance)) throw new Error('Distance must be greater than 0');
+    // Validate required fields
+    if (!tripData.startingPoint) throw new Error('Starting point is required');
+    if (!tripData.endingPoint) throw new Error('Ending point is required');
+    if (!validateDistance(tripData.distance)) throw new Error('Distance must be greater than 0');
+    if (!tripData.customerId) throw new Error('Customer is required');
+    if (!tripData.vehicleId) throw new Error('Vehicle is required');
+    if (!tripData.driverId) throw new Error('Driver is required');
 
-        // Format data for PostgreSQL
-        const formattedData = {
-            customer_id: tripData.customerId,
-            vehicle_id: tripData.vehicleId,
-            driver_id: tripData.driverId,
-            assistant_id: tripData.assistantId,
-            starting_point: tripData.startingPoint,
-            ending_point: tripData.endingPoint,
-            distance: tripData.distance,
-            trip_date: tripData.tripDate ? new Date(tripData.tripDate).toISOString() : null,
-            status: tripData.status || 'PENDING',
-            price_for_customer: tripData.priceForCustomer || tripData.price || 0,
-            price_for_staff: tripData.priceForStaff || tripData.price || 0,
-            expenses: formatExpensesToDatabase(tripData.expenses),
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-        };
+    // Format data for PostgreSQL
+    const formattedData = {
+        customer_id: tripData.customerId,
+        vehicle_id: tripData.vehicleId,
+        driver_id: tripData.driverId,
+        assistant_id: tripData.assistantId === undefined ? null : tripData.assistantId,
+        starting_point: tripData.startingPoint,
+        ending_point: tripData.endingPoint,
+        distance: tripData.distance,
+        trip_date: tripData.tripDate ? new Date(tripData.tripDate).toISOString() : null,
+        status: tripData.status || 'PENDING',
+        price_for_customer: tripData.priceForCustomer || tripData.price || 0,
+        price_for_staff: tripData.priceForStaff || tripData.price || 0,
+        expenses: formatExpensesToDatabase(tripData.expenses),
+        salary: {
+            driver: 0,
+            assistant: 0
+        },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+    };
 
-        const { data, error } = await supabase.from('trips').insert(formattedData).select().single();
+    // Debug log the formatted data
+    console.log('Creating trip with data:', formattedData);
 
-        if (error) throw error;
+    // Insert into database
+    const { data, error } = await supabase.from('trips').insert(formattedData).select().single();
 
-        // If trip is PRICED, calculate and save wages and update customer debt
-        if (data.status === 'PRICED') {
-            await saveWagesForTrip(data);
-            await updateCustomerDebtForTrip(data);
-        }
-
-        return data;
-    } catch (error) {
+    if (error) {
         console.error('Error creating trip:', error);
+        console.error('Formatted data that caused error:', formattedData);
         throw error;
     }
+
+    // If trip is PRICED, calculate wages and update customer debt
+    if (data.status === 'PRICED') {
+        await saveWagesForTrip(data);
+        await updateCustomerDebtForTrip(data);
+    }
+
+    return data;
 };
 
 /**
@@ -202,67 +212,64 @@ export const createTrip = async (tripData) => {
  * @returns {Promise<Object>} - Updated trip
  */
 export const updateTrip = async (tripId, tripData) => {
-    try {
-        // Get the current trip status and price before update
-        const { data: currentTrip, error: fetchError } = await supabase.from('trips').select('status, price_for_customer, price_for_staff, driver_id, assistant_id').eq('id', tripId).single();
+    // Get current trip data
+    const { data: currentTrip } = await supabase.from('trips')
+        .select('status, price_for_customer, price_for_staff, driver_id, assistant_id, salary')
+        .eq('id', tripId)
+        .single();
 
-        if (fetchError) throw fetchError;
+    if (!currentTrip) {
+        throw new Error('Trip not found');
+    }
 
-        const oldStatus = currentTrip.status;
-        const oldPriceForCustomer = currentTrip.price_for_customer;
-        const oldPriceForStaff = currentTrip.price_for_staff;
-        const oldDriverId = currentTrip.driver_id;
-        const oldAssistantId = currentTrip.assistant_id;
+    const oldStatus = currentTrip.status;
+    const oldPriceForCustomer = currentTrip.price_for_customer;
+    const oldPriceForStaff = currentTrip.price_for_staff;
+    const oldDriverId = currentTrip.driver_id;
+    const oldAssistantId = currentTrip.assistant_id;
 
-        // Format data for PostgreSQL
-        const formattedData = {};
+    // Format the data for PostgreSQL
+    const formattedData = {
+        customer_id: tripData.customerId === undefined ? null : tripData.customerId,
+        vehicle_id: tripData.vehicleId === undefined ? null : tripData.vehicleId,
+        driver_id: tripData.driverId === undefined ? null : tripData.driverId,
+        assistant_id: tripData.assistantId === undefined ? null : tripData.assistantId,
+        starting_point: tripData.startingPoint,
+        ending_point: tripData.endingPoint,
+        distance: tripData.distance,
+        trip_date: tripData.tripDate ? new Date(tripData.tripDate).toISOString() : null,
+        status: tripData.status,
+        price_for_customer: tripData.priceForCustomer || 0,
+        price_for_staff: tripData.priceForStaff || 0,
+        expenses: formatExpensesToDatabase(tripData.expenses),
+        updated_at: new Date().toISOString()
+    };
 
-        // Only include fields that are provided in tripData
-        if (tripData.customerId !== undefined) formattedData.customer_id = tripData.customerId;
-        if (tripData.vehicleId !== undefined) formattedData.vehicle_id = tripData.vehicleId;
-        if (tripData.driverId !== undefined) formattedData.driver_id = tripData.driverId;
-        if (tripData.assistantId !== undefined) formattedData.assistant_id = tripData.assistantId;
-        if (tripData.startingPoint !== undefined) formattedData.starting_point = tripData.startingPoint;
-        if (tripData.endingPoint !== undefined) formattedData.ending_point = tripData.endingPoint;
-        if (tripData.distance !== undefined) formattedData.distance = tripData.distance;
-        if (tripData.tripDate !== undefined) formattedData.trip_date = tripData.tripDate ? new Date(tripData.tripDate).toISOString() : null;
-        if (tripData.status !== undefined) formattedData.status = tripData.status;
-        if (tripData.priceForCustomer !== undefined) formattedData.price_for_customer = tripData.priceForCustomer || 0;
-        if (tripData.priceForStaff !== undefined) formattedData.price_for_staff = tripData.priceForStaff || 0;
-        // For backward compatibility
-        if (tripData.price !== undefined && tripData.priceForCustomer === undefined && tripData.priceForStaff === undefined) {
-            formattedData.price_for_customer = tripData.price || 0;
-            formattedData.price_for_staff = tripData.price || 0;
-        }
+    // Update the trip
+    const { data, error } = await supabase.from('trips')
+        .update(formattedData)
+        .eq('id', tripId)
+        .select()
+        .single();
 
-        // Only update expenses if provided
-        if (tripData.expenses) {
-            formattedData.expenses = formatExpensesToDatabase(tripData.expenses);
-        }
-
-        // Always update the updated_at timestamp
-        formattedData.updated_at = new Date().toISOString();
-
-        const { data, error } = await supabase.from('trips').update(formattedData).eq('id', tripId).select().single();
-
-        if (error) throw error;
-
-        // Determine if we need to recalculate wages and update customer debt
-        const statusChanged = data.status === 'PRICED' && oldStatus !== 'PRICED';
-        const priceForCustomerChanged = data.status === 'PRICED' && data.price_for_customer !== oldPriceForCustomer;
-        const priceForStaffChanged = data.status === 'PRICED' && data.price_for_staff !== oldPriceForStaff;
-        const staffChanged = data.status === 'PRICED' && (data.driver_id !== oldDriverId || data.assistant_id !== oldAssistantId);
-
-        if (statusChanged || priceForCustomerChanged || priceForStaffChanged || staffChanged) {
-            await saveWagesForTrip(data);
-            await updateCustomerDebtForTrip(data);
-        }
-
-        return data;
-    } catch (error) {
-        console.error(`Error updating trip ${tripId}:`, error);
+    if (error) {
+        console.error('Error updating trip:', error);
         throw error;
     }
+
+    // Check if we need to recalculate wages
+    const statusChanged = data.status === 'PRICED' && oldStatus !== 'PRICED';
+    const priceForCustomerChanged = data.status === 'PRICED' && data.price_for_customer !== oldPriceForCustomer;
+    const priceForStaffChanged = data.status === 'PRICED' && data.price_for_staff !== oldPriceForStaff;
+    const staffChanged = data.status === 'PRICED' && (data.driver_id !== oldDriverId || data.assistant_id !== oldAssistantId);
+
+    // Update wages and debt if needed
+    if (statusChanged || priceForCustomerChanged || priceForStaffChanged || staffChanged) {
+        await saveWagesForTrip(data);
+        await updateCustomerDebtForTrip(data);
+    }
+
+    return data;
 };
 
 /**
@@ -321,14 +328,15 @@ export const setPriceForTrip = async (tripId, priceForCustomer, priceForStaff = 
         }
 
         // If priceForStaff is not provided, use priceForCustomer
-        const finalPriceForStaff = priceForStaff !== null ? priceForStaff : priceForCustomer;
+        const finalPriceForStaff = priceForStaff !== null ? Number(priceForStaff) : Number(priceForCustomer);
+        const finalPriceForCustomer = Number(priceForCustomer);
 
         // Get the trip with related data for wage calculation
         const { data, error } = await supabase
             .from('trips')
             .update({
                 status: 'PRICED',
-                price_for_customer: priceForCustomer,
+                price_for_customer: finalPriceForCustomer,
                 price_for_staff: finalPriceForStaff,
                 updated_at: new Date().toISOString()
             })
@@ -437,7 +445,9 @@ export const useTripList = (statusFilter = '') => {
                 distance: trip.distance,
                 tripDate: trip.trip_date,
                 status: trip.status,
-                price: trip.price,
+                price: Number(trip.price || 0),
+                price_for_staff: Number(trip.price_for_staff || 0),
+                price_for_customer: Number(trip.price_for_customer || 0),
                 expenses: formatExpensesToFrontend(trip.expenses),
                 // Add derived fields
                 customerDisplayName: trip.customers?.company_name || trip.customers?.representative_name || 'Unknown',
@@ -706,7 +716,16 @@ export const useTripEdit = (tripId) => {
         try {
             if (!trip.value) throw new Error('No trip data to save');
 
-            await updateTrip(tripId, trip.value);
+            // Ensure UUID fields are properly handled
+            const tripData = {
+                ...trip.value,
+                customerId: trip.value.customerId || null,
+                vehicleId: trip.value.vehicleId || null,
+                driverId: trip.value.driverId || null,
+                assistantId: trip.value.assistantId || null
+            };
+
+            await updateTrip(tripId, tripData);
 
             return true;
         } catch (err) {
@@ -853,7 +872,44 @@ export const useTripAdd = () => {
         error.value = null;
 
         try {
-            const result = await createTrip(trip.value);
+            // Validate required fields
+            if (!trip.value.customerId) {
+                throw new Error('Customer is required');
+            }
+            if (!trip.value.vehicleId) {
+                throw new Error('Vehicle is required');
+            }
+            if (!trip.value.driverId) {
+                throw new Error('Driver is required');
+            }
+            if (!trip.value.startingPoint) {
+                throw new Error('Starting point is required');
+            }
+            if (!trip.value.endingPoint) {
+                throw new Error('Ending point is required');
+            }
+            if (!trip.value.distance || trip.value.distance <= 0) {
+                throw new Error('Distance must be greater than 0');
+            }
+
+            // Debug log the trip data
+            console.log('Trip data before creating:', trip.value);
+
+            // Create trip data with validated fields
+            const tripData = {
+                ...trip.value,
+                // Ensure required UUID fields are present
+                customerId: trip.value.customerId,
+                vehicleId: trip.value.vehicleId,
+                driverId: trip.value.driverId,
+                // Optional UUID field
+                assistantId: trip.value.assistantId || null
+            };
+
+            // Debug log the trip data after validation
+            console.log('Trip data after validation:', tripData);
+
+            const result = await createTrip(tripData);
 
             // Reset form after successful save
             trip.value = {
@@ -879,7 +935,7 @@ export const useTripAdd = () => {
             return result;
         } catch (err) {
             console.error('Error saving trip:', err);
-            error.value = 'Failed to save trip data';
+            error.value = err.message || 'Failed to save trip data';
             return null;
         } finally {
             saving.value = false;

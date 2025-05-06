@@ -3,7 +3,7 @@
 import { onMounted, ref } from 'vue';
 
 // Service imports
-import { calculateTotalExpenses, getStatusSeverity, updateTrip, useTripList, validateDistance } from '@/services/trip';
+import { getStatusSeverity, updateTrip, useTripList, validateDistance } from '@/services/trip';
 
 // PrimeVue component imports
 import SearchableSelect from '@/components/ui/SearchableSelect.vue';
@@ -289,7 +289,6 @@ onMounted(async () => {
                             <th class="px-3 py-3 text-left font-semibold text-gray-800 border-r border-yellow-100">Chi phí ăn uống</th>
                             <th class="px-3 py-3 text-left font-semibold text-gray-800 border-r border-yellow-100">Chi phí xăng</th>
                             <th class="px-3 py-3 text-left font-semibold text-gray-800 border-r border-yellow-100">Chi phí sửa chữa</th>
-                            <th class="px-3 py-3 text-left font-semibold text-gray-800 border-r border-yellow-100">Tổng chi phí</th>
                             <th class="px-3 py-3 text-left font-semibold text-gray-800 border-r border-yellow-100">Trạng thái</th>
                             <th class="px-3 py-3 text-left font-semibold text-gray-800">Thao tác</th>
                         </tr>
@@ -370,10 +369,6 @@ onMounted(async () => {
                             </td>
                             <td class="px-3 py-2 border-r border-yellow-100">
                                 <InputNumber v-model="trip.expenses.mechanicFee" mode="currency" currency="VND" locale="vi-VN" :minFractionDigits="0" :maxFractionDigits="0" :disabled="!editModeState[trip.id]" class="w-full text-xs" />
-                            </td>
-
-                            <td class="px-3 py-2 whitespace-nowrap border-r border-yellow-100" :title="calculateTotalExpenses(trip.expenses)">
-                                {{ calculateTotalExpenses(trip.expenses) }}
                             </td>
 
                             <td class="px-3 py-2 whitespace-nowrap border-r border-yellow-100" :title="translateStatus(trip.status)">

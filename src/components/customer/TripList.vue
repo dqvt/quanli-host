@@ -1,6 +1,6 @@
 <script setup>
 import { supabase } from '@/config/supabase';
-import { addOrUpdateDebt, formatCurrency } from '@/services/debt';
+import { formatCurrency } from '@/services/debt';
 import { formatTimestamp } from '@/services/trip';
 import Button from 'primevue/button';
 import Card from 'primevue/card';
@@ -9,6 +9,7 @@ import DataTable from 'primevue/datatable';
 import ProgressSpinner from 'primevue/progressspinner';
 import TabPanel from 'primevue/tabpanel';
 import TabView from 'primevue/tabview';
+import Tag from 'primevue/tag';
 import { useToast } from 'primevue/usetoast';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -20,12 +21,12 @@ const customerId = route.params.id;
 const customer = ref(null);
 const trips = ref([]);
 const loading = ref(false);
-const confirmDebtDialog = ref(false);
-const currentYear = new Date().getFullYear();
 const activeTab = ref(0);
 
-// Function to group trips by month and year
+// Function to group trips by month and year with more efficient grouping
 const groupTripsByMonth = (trips) => {
+    if (!trips || !trips.length) return [];
+    
     const groupedTrips = {};
 
     // Process all trips
@@ -45,18 +46,21 @@ const groupTripsByMonth = (trips) => {
                 trips: [],
                 totalPrice: 0,
                 totalExpenses: 0,
+                profit: 0,
                 displayName: `Tháng ${month.toString().padStart(2, '0')}/${year}`
             };
         }
 
-        groupedTrips[key].trips.push(trip);
-        groupedTrips[key].totalPrice += trip.price || 0;
-
-        // Calculate expenses for this trip
-        if (trip.expenses) {
-            const expenseTotal = Object.values(trip.expenses).reduce((sum, value) => sum + (value || 0), 0);
-            groupedTrips[key].totalExpenses += expenseTotal;
-        }
+        const group = groupedTrips[key];
+        group.trips.push(trip);
+        
+        // Calculate financial data in one pass
+        const tripPrice = Number(trip.price_for_customer) || 0;
+        const tripExpenses = calculateTotalExpensesValue(trip.expenses);
+        
+        group.totalPrice += tripPrice;
+        group.totalExpenses += tripExpenses;
+        group.profit = group.totalPrice - group.totalExpenses;
     });
 
     // Convert to array and sort by date (newest first)
@@ -66,17 +70,19 @@ const groupTripsByMonth = (trips) => {
     });
 };
 
-// Computed properties
+// Calculated expense value for a trip
+function calculateTotalExpensesValue(expenses) {
+    if (!expenses) return 0;
+    return Object.values(expenses).reduce((sum, value) => sum + (Number(value) || 0), 0);
+}
+
+// Computed properties for financial summaries
 const totalTripPrice = computed(() => {
-    return trips.value.reduce((sum, trip) => sum + (trip.price || 0), 0);
+    return trips.value.reduce((sum, trip) => sum + (Number(trip.price_for_customer) || 0), 0);
 });
 
 const totalTripExpenses = computed(() => {
-    return trips.value.reduce((sum, trip) => {
-        if (!trip.expenses) return sum;
-        const expenseTotal = Object.values(trip.expenses).reduce((expSum, value) => expSum + (value || 0), 0);
-        return sum + expenseTotal;
-    }, 0);
+    return trips.value.reduce((sum, trip) => sum + calculateTotalExpensesValue(trip.expenses), 0);
 });
 
 const totalProfit = computed(() => {
@@ -88,18 +94,41 @@ const monthlyTrips = computed(() => {
     return groupTripsByMonth(trips.value);
 });
 
-onMounted(async () => {
-    await fetchData();
-});
+// Format date for display
+function formatDate(dateString) {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('vi-VN');
+}
 
+// Translate status for display
+function translateStatus(status) {
+    const statusMap = {
+        'PENDING': 'Chờ duyệt',
+        'WAITING_FOR_PRICE': 'Chờ báo giá',
+        'PRICED': 'Đã báo giá'
+    };
+    return statusMap[status] || status;
+}
+
+// Get severity class for status tag
+function getStatusSeverity(status) {
+    const severityMap = {
+        'PENDING': 'info',
+        'WAITING_FOR_PRICE': 'warning',
+        'PRICED': 'success'
+    };
+    return severityMap[status] || 'info';
+}
+
+// Main data fetching function
 async function fetchData() {
     loading.value = true;
     try {
-        // Fetch customer data
-        await fetchCustomer();
-
-        // Fetch trips for this customer
-        await fetchCustomerTrips();
+        await Promise.all([
+            fetchCustomer(),
+            fetchCustomerTrips()
+        ]);
     } catch (error) {
         console.error('Error fetching data:', error);
         toast.add({
@@ -113,6 +142,7 @@ async function fetchData() {
     }
 }
 
+// Fetch customer details
 async function fetchCustomer() {
     try {
         const { data, error } = await supabase.from('customers').select('*').eq('id', customerId).single();
@@ -144,24 +174,23 @@ async function fetchCustomer() {
     }
 }
 
+// Fetch trips for the selected customer
 async function fetchCustomerTrips() {
     try {
         const { data, error } = await supabase
             .from('trips')
-            .select(
-                `
+            .select(`
                 *,
                 vehicles(id, license_number),
                 driver:staff!fk_driver(id, full_name),
                 assistant:staff!fk_assistant(id, full_name)
-            `
-            )
+            `)
             .eq('customer_id', customerId);
 
         if (error) throw error;
 
         // Transform data to match the expected format
-        const tripsData = data.map((trip) => ({
+        trips.value = data.map((trip) => ({
             id: trip.id,
             customerId: trip.customer_id,
             vehicleId: trip.vehicle_id,
@@ -172,7 +201,8 @@ async function fetchCustomerTrips() {
             distance: trip.distance,
             tripDate: trip.trip_date,
             status: trip.status,
-            price: trip.price,
+            price_for_customer: trip.price_for_customer,
+            price_for_staff: trip.price_for_staff,
             expenses: {
                 policeFee: trip.expenses?.police_fee || 0,
                 tollFee: trip.expenses?.toll_fee || 0,
@@ -186,10 +216,7 @@ async function fetchCustomerTrips() {
             assistantDriverName: trip.assistant?.full_name || 'Unknown',
             createdAt: trip.created_at,
             updatedAt: trip.updated_at
-        }));
-
-        // Sort trips by date (newest first)
-        trips.value = tripsData.sort((a, b) => {
+        })).sort((a, b) => {
             const dateA = a.tripDate ? new Date(a.tripDate) : new Date(0);
             const dateB = b.tripDate ? new Date(b.tripDate) : new Date(0);
             return dateB - dateA;
@@ -200,54 +227,19 @@ async function fetchCustomerTrips() {
     }
 }
 
-function formatDate(dateString) {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('vi-VN');
-}
-
-function calculateTotalExpensesValue(expenses) {
-    if (!expenses) return 0;
-    return Object.values(expenses).reduce((sum, value) => sum + (value || 0), 0);
-}
-
-async function addAsDebt() {
-    try {
-        // Allow adding debt even when total price is 0
-        if (totalTripPrice.value < 0) {
-            toast.add({
-                severity: 'error',
-                summary: 'Lỗi',
-                detail: 'Tổng giá trị chuyến xe không thể âm',
-                life: 3000
-            });
-            return;
-        }
-
-        await addOrUpdateDebt(customerId, customer.value.companyName, customer.value.representativeName, currentYear, totalTripPrice.value);
-
-        toast.add({
-            severity: 'success',
-            summary: 'Thành công',
-            detail: 'Đã thêm tổng giá trị chuyến xe vào công nợ',
-            life: 3000
-        });
-
-        confirmDebtDialog.value = false;
-    } catch (error) {
-        console.error('Error adding debt:', error);
-        toast.add({
-            severity: 'error',
-            summary: 'Lỗi',
-            detail: 'Không thể thêm công nợ',
-            life: 3000
-        });
-    }
-}
-
+// Go back to customer debt page
 function goBack() {
     router.push(`/customer/debt/${customerId}`);
 }
+
+// Navigate to trip details
+function viewTripDetails(tripId) {
+    router.push(`/trip/edit/${tripId}`);
+}
+
+onMounted(async () => {
+    await fetchData();
+});
 </script>
 
 <template>
@@ -295,31 +287,31 @@ function goBack() {
             </Card>
 
             <!-- Summary cards -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 <Card class="shadow-sm">
-                    <template #title>
-                        <div class="text-lg font-bold">Tổng giá trị chuyến xe</div>
+                    <template #header>
+                        <div class="text-lg font-bold text-blue-800 px-4 py-2 bg-blue-50">Tổng giá trị chuyến xe</div>
                     </template>
                     <template #content>
-                        <div class="text-2xl font-bold text-blue-600">{{ formatCurrency(totalTripPrice) }}</div>
+                        <div class="text-2xl font-bold text-blue-600 p-4">{{ formatCurrency(totalTripPrice) }}</div>
                     </template>
                 </Card>
 
                 <Card class="shadow-sm">
-                    <template #title>
-                        <div class="text-lg font-bold">Tổng chi phí</div>
+                    <template #header>
+                        <div class="text-lg font-bold text-orange-800 px-4 py-2 bg-orange-50">Tổng chi phí</div>
                     </template>
                     <template #content>
-                        <div class="text-2xl font-bold text-orange-500">{{ formatCurrency(totalTripExpenses) }}</div>
+                        <div class="text-2xl font-bold text-orange-500 p-4">{{ formatCurrency(totalTripExpenses) }}</div>
                     </template>
                 </Card>
 
                 <Card class="shadow-sm">
-                    <template #title>
-                        <div class="text-lg font-bold">Lợi nhuận</div>
+                    <template #header>
+                        <div class="text-lg font-bold px-4 py-2" :class="totalProfit > 0 ? 'text-green-800 bg-green-50' : 'text-red-800 bg-red-50'">Lợi nhuận</div>
                     </template>
                     <template #content>
-                        <div class="text-2xl font-bold" :class="{ 'text-green-600': totalProfit > 0, 'text-red-500': totalProfit <= 0 }">
+                        <div class="text-2xl font-bold p-4" :class="{ 'text-green-600': totalProfit > 0, 'text-red-500': totalProfit <= 0 }">
                             {{ formatCurrency(totalProfit) }}
                         </div>
                     </template>
@@ -327,11 +319,12 @@ function goBack() {
             </div>
 
             <!-- Trips in tabs -->
-            <div v-if="monthlyTrips.length > 0">
-                <TabView v-model:activeIndex="activeTab">
+            <div v-if="monthlyTrips.length > 0" class="bg-white p-4 rounded-lg shadow-sm">
+                <TabView v-model:activeIndex="activeTab" class="trip-tabs">
                     <TabPanel v-for="month in monthlyTrips" :key="`${month.year}-${month.month}`" :header="month.displayName">
                         <div class="mb-4">
-                            <div class="flex justify-end gap-4 mb-4">
+                            <!-- Month summary -->
+                            <div class="flex justify-end gap-4 mb-4 bg-gray-50 p-3 rounded-lg">
                                 <div class="text-right">
                                     <div class="text-sm text-gray-600">Tổng chi phí</div>
                                     <div class="font-semibold text-orange-500">{{ formatCurrency(month.totalExpenses) }}</div>
@@ -342,12 +335,13 @@ function goBack() {
                                 </div>
                                 <div class="text-right">
                                     <div class="text-sm text-gray-600">Lợi nhuận</div>
-                                    <div class="font-semibold" :class="month.totalPrice - month.totalExpenses >= 0 ? 'text-green-600' : 'text-red-600'">
-                                        {{ formatCurrency(month.totalPrice - month.totalExpenses) }}
+                                    <div class="font-semibold" :class="month.profit >= 0 ? 'text-green-600' : 'text-red-600'">
+                                        {{ formatCurrency(month.profit) }}
                                     </div>
                                 </div>
                             </div>
 
+                            <!-- Trip data table -->
                             <DataTable
                                 :value="month.trips"
                                 :paginator="true"
@@ -361,6 +355,7 @@ function goBack() {
                                 scrollHeight="400px"
                                 size="small"
                                 stripedRows
+                                tableStyle="min-width: 100%"
                             >
                                 <Column field="tripDate" header="Ngày đi" sortable style="min-width: 100px; max-width: 120px">
                                     <template #body="{ data }">
@@ -379,24 +374,26 @@ function goBack() {
                                     </template>
                                 </Column>
                                 <Column field="distance" header="Khoảng cách" sortable style="min-width: 80px; max-width: 100px">
-                                    <template #body="{ data }"> {{ data.distance || 0 }} km </template>
+                                    <template #body="{ data }">{{ data.distance || 0 }} km</template>
                                 </Column>
                                 <Column field="expenses" header="Chi phí" sortable style="min-width: 120px; max-width: 140px">
                                     <template #body="{ data }">
                                         {{ formatCurrency(calculateTotalExpensesValue(data.expenses)) }}
                                     </template>
                                 </Column>
-                                <Column field="price" header="Giá chuyến" sortable style="min-width: 120px; max-width: 140px">
+                                <Column field="price_for_staff" header="Giá cho nhân viên" sortable style="min-width: 120px; max-width: 140px">
                                     <template #body="{ data }">
-                                        {{ formatCurrency(data.price || 0) }}
+                                        {{ formatCurrency(data.price_for_staff || 0) }}
+                                    </template>
+                                </Column>
+                                <Column field="price_for_customer" header="Giá cho khách hàng" sortable style="min-width: 120px; max-width: 140px">
+                                    <template #body="{ data }">
+                                        {{ formatCurrency(data.price_for_customer || 0) }}
                                     </template>
                                 </Column>
                                 <Column field="status" header="Trạng thái" sortable style="min-width: 100px; max-width: 120px">
                                     <template #body="{ data }">
-                                        <Tag
-                                            :value="data.status === 'PENDING' ? 'Chờ duyệt' : data.status === 'WAITING_FOR_PRICE' ? 'Chờ báo giá' : 'Đã báo giá'"
-                                            :severity="data.status === 'PENDING' ? 'info' : data.status === 'WAITING_FOR_PRICE' ? 'warning' : 'success'"
-                                        />
+                                        <Tag :value="translateStatus(data.status)" :severity="getStatusSeverity(data.status)" />
                                     </template>
                                 </Column>
                                 <Column field="createdAt" header="Ngày tạo" sortable style="min-width: 100px; max-width: 120px">
@@ -405,8 +402,14 @@ function goBack() {
                                     </template>
                                 </Column>
                                 <Column header="Thao tác" style="min-width: 100px; max-width: 120px">
-                                    <template #body="slotProps">
-                                        <Button label="Chi tiết" size="small" class="p-button-sm" @click="router.push(`/trip/edit/${slotProps.data.id}`)" />
+                                    <template #body="{ data }">
+                                        <Button 
+                                            icon="pi pi-external-link" 
+                                            label="Chi tiết" 
+                                            size="small" 
+                                            class="p-button-sm" 
+                                            @click="viewTripDetails(data.id)" 
+                                        />
                                     </template>
                                 </Column>
                             </DataTable>
@@ -416,19 +419,15 @@ function goBack() {
             </div>
 
             <!-- Empty state -->
-            <div v-if="trips.length === 0" class="text-center p-4">
-                <i class="pi pi-search mb-4" style="font-size: 2rem"></i>
-                <p>Không tìm thấy chuyến xe nào cho khách hàng này</p>
+            <div v-else class="text-center p-6 bg-gray-50 rounded-lg">
+                <i class="pi pi-inbox mb-4 text-gray-400" style="font-size: 3rem"></i>
+                <p class="text-lg text-gray-600">Không tìm thấy chuyến xe nào cho khách hàng này</p>
             </div>
         </div>
     </div>
 </template>
 
 <style scoped>
-.p-invalid {
-    @apply border-red-500;
-}
-
 /* Truncate text in table cells */
 .truncate-text {
     white-space: nowrap;
@@ -453,6 +452,7 @@ function goBack() {
 :deep(.p-datatable-thead > tr > th) {
     padding: 0.75rem;
     background-color: #f8f9fa;
+    font-weight: 600;
 }
 
 :deep(.p-paginator) {
@@ -471,11 +471,18 @@ function goBack() {
 }
 
 :deep(.p-tabview-nav-link) {
-    padding: 1rem 1.5rem;
+    padding: 0.75rem 1.5rem;
+    font-weight: 500;
 }
 
 :deep(.p-tabview-selected) {
-    background-color: #f8f9fa;
-    border-color: #e5e7eb;
+    background-color: #f0f5ff;
+    border-color: #3b82f6;
+    color: #3b82f6;
+}
+
+.trip-tabs {
+    border-radius: 0.5rem;
+    overflow: hidden;
 }
 </style>

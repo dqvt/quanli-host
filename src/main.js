@@ -7,6 +7,7 @@ import Aura from '@primeuix/themes/aura';
 import PrimeVue from 'primevue/config';
 import ConfirmationService from 'primevue/confirmationservice';
 import ToastService from 'primevue/toastservice';
+import Tooltip from 'primevue/tooltip';
 
 import '@/assets/styles.scss';
 
@@ -45,6 +46,7 @@ app.use(PrimeVue, {
 // Make sure ToastService is registered before any components that use it
 app.use(ToastService);
 app.use(ConfirmationService);
+app.directive('tooltip', Tooltip);
 
 // Add global date formatting method
 app.config.globalProperties.$formatDate = (dateString) => {
