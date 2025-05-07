@@ -7,7 +7,6 @@ import Card from 'primevue/card';
 import Column from 'primevue/column';
 import DataTable from 'primevue/datatable';
 import Dialog from 'primevue/dialog';
-import Divider from 'primevue/divider';
 import InputNumber from 'primevue/inputnumber';
 import InputText from 'primevue/inputtext';
 import ProgressSpinner from 'primevue/progressspinner';
@@ -378,32 +377,26 @@ function goBack() {
             <!-- Debt summary by year -->
             <div class="mb-4">
                 <h3 class="text-lg font-semibold mb-2">Tổng quan công nợ theo năm</h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <Card v-for="summary in yearlyDebtSummary" :key="summary.year" class="shadow-sm">
-                        <template #title>
-                            <div class="text-lg font-bold">Năm {{ summary.year }}</div>
-                        </template>
-                        <template #content>
-                            <div class="flex flex-col gap-2">
-                                <div class="flex justify-between">
-                                    <span>Tổng công nợ:</span>
-                                    <span class="font-semibold">{{ formatCurrency(summary.totalDebt) }}</span>
-                                </div>
-                                <div class="flex justify-between">
-                                    <span>Đã thanh toán:</span>
-                                    <span class="font-semibold">{{ formatCurrency(summary.totalPayments) }}</span>
-                                </div>
-                                <Divider />
-                                <div class="flex justify-between">
-                                    <span>Còn lại:</span>
-                                    <span class="font-bold" :class="{ 'text-red-500': summary.remaining > 0 }">
-                                        {{ formatCurrency(summary.remaining) }}
-                                    </span>
+                <TabView>
+                    <TabPanel v-for="summary in yearlyDebtSummary" :key="summary.year" :header="`Năm ${summary.year}`">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 p-4">
+                            <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+                                <div class="text-sm text-gray-600 mb-1">Tổng công nợ</div>
+                                <div class="text-xl font-semibold">{{ formatCurrency(summary.totalDebt) }}</div>
+                            </div>
+                            <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+                                <div class="text-sm text-gray-600 mb-1">Đã thanh toán</div>
+                                <div class="text-xl font-semibold text-green-600">{{ formatCurrency(summary.totalPayments) }}</div>
+                            </div>
+                            <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+                                <div class="text-sm text-gray-600 mb-1">Còn lại</div>
+                                <div class="text-xl font-bold" :class="{ 'text-red-500': summary.remaining > 0 }">
+                                    {{ formatCurrency(summary.remaining) }}
                                 </div>
                             </div>
-                        </template>
-                    </Card>
-                </div>
+                        </div>
+                    </TabPanel>
+                </TabView>
             </div>
 
             <!-- Detailed tabs -->

@@ -286,38 +286,6 @@ onMounted(async () => {
                 </template>
             </Card>
 
-            <!-- Summary cards -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                <Card class="shadow-sm">
-                    <template #header>
-                        <div class="text-lg font-bold text-blue-800 px-4 py-2 bg-blue-50">Tổng giá trị chuyến xe</div>
-                    </template>
-                    <template #content>
-                        <div class="text-2xl font-bold text-blue-600 p-4">{{ formatCurrency(totalTripPrice) }}</div>
-                    </template>
-                </Card>
-
-                <Card class="shadow-sm">
-                    <template #header>
-                        <div class="text-lg font-bold text-orange-800 px-4 py-2 bg-orange-50">Tổng chi phí</div>
-                    </template>
-                    <template #content>
-                        <div class="text-2xl font-bold text-orange-500 p-4">{{ formatCurrency(totalTripExpenses) }}</div>
-                    </template>
-                </Card>
-
-                <Card class="shadow-sm">
-                    <template #header>
-                        <div class="text-lg font-bold px-4 py-2" :class="totalProfit > 0 ? 'text-green-800 bg-green-50' : 'text-red-800 bg-red-50'">Lợi nhuận</div>
-                    </template>
-                    <template #content>
-                        <div class="text-2xl font-bold p-4" :class="{ 'text-green-600': totalProfit > 0, 'text-red-500': totalProfit <= 0 }">
-                            {{ formatCurrency(totalProfit) }}
-                        </div>
-                    </template>
-                </Card>
-            </div>
-
             <!-- Trips in tabs -->
             <div v-if="monthlyTrips.length > 0" class="bg-white p-4 rounded-lg shadow-sm">
                 <TabView v-model:activeIndex="activeTab" class="trip-tabs">
@@ -332,12 +300,6 @@ onMounted(async () => {
                                 <div class="text-right">
                                     <div class="text-sm text-gray-600">Tổng giá trị</div>
                                     <div class="font-semibold text-blue-600">{{ formatCurrency(month.totalPrice) }}</div>
-                                </div>
-                                <div class="text-right">
-                                    <div class="text-sm text-gray-600">Lợi nhuận</div>
-                                    <div class="font-semibold" :class="month.profit >= 0 ? 'text-green-600' : 'text-red-600'">
-                                        {{ formatCurrency(month.profit) }}
-                                    </div>
                                 </div>
                             </div>
 

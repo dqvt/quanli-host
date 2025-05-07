@@ -32,6 +32,11 @@ const router = createRouter({
                     component: () => import('@/components/trip/WaitingPriceList.vue')
                 },
                 {
+                    path: '/trip/all',
+                    name: 'TripListAll',
+                    component: () => import('@/components/trip/ListAll.vue')
+                },
+                {
                     path: '/trip/add',
                     name: 'TripAdd',
                     component: () => import('@/components/trip/Add.vue'),
